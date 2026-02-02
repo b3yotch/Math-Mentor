@@ -1,0 +1,62 @@
+[
+    {
+        "title": "Matrix Addition and Scalar Multiplication",
+        "type": "formula",
+        "content": "Matrix addition: Add corresponding elements (matrices must have same dimensions). (A+B)ᵢⱼ = Aᵢⱼ + Bᵢⱼ. Scalar multiplication: Multiply each element by scalar. (cA)ᵢⱼ = c·Aᵢⱼ. Properties: A+B = B+A (commutative), (A+B)+C = A+(B+C) (associative), A+O = A (identity), A+(-A) = O.",
+        "keywords": ["matrix", "addition", "scalar multiplication"]
+    },
+    {
+        "title": "Matrix Multiplication",
+        "type": "formula",
+        "content": "Matrix multiplication: For A(m×n) and B(n×p), product AB is (m×p). (AB)ᵢⱼ = Σₖ Aᵢₖ·Bₖⱼ. Properties: AB ≠ BA generally (not commutative), (AB)C = A(BC) (associative), A(B+C) = AB+AC (distributive), AI = IA = A (identity matrix). Number of columns in A must equal rows in B.",
+        "keywords": ["matrix multiplication", "product", "non-commutative"]
+    },
+    {
+        "title": "Determinant of 2×2 Matrix",
+        "type": "formula",
+        "content": "For 2×2 matrix A = [[a,b],[c,d]], determinant det(A) = |A| = ad - bc. Properties: det(AB) = det(A)·det(B), det(A⁻¹) = 1/det(A), det(cA) = c²·det(A) for 2×2. Matrix is invertible iff det(A) ≠ 0. Area of parallelogram with vertices as column vectors = |det(A)|.",
+        "keywords": ["determinant", "2x2", "matrix", "invertible"]
+    },
+    {
+        "title": "Determinant of 3×3 Matrix",
+        "type": "formula",
+        "content": "For 3×3 matrix, use expansion by minors (cofactor expansion). det(A) = a₁₁(a₂₂a₃₃-a₂₃a₃₂) - a₁₂(a₂₁a₃₃-a₂₃a₃₁) + a₁₃(a₂₁a₃₂-a₂₂a₃₁). Or use Sarrus' rule: add products of main diagonals, subtract products of anti-diagonals. det(A) = 0 means rows/columns are linearly dependent.",
+        "keywords": ["determinant", "3x3", "cofactor", "Sarrus rule"]
+    },
+    {
+        "title": "Matrix Inverse",
+        "type": "formula",
+        "content": "Inverse A⁻¹ satisfies AA⁻¹ = A⁻¹A = I. For 2×2: A⁻¹ = (1/det(A))·[[d,-b],[-c,a]]. Properties: (AB)⁻¹ = B⁻¹A⁻¹, (A⁻¹)⁻¹ = A, (Aᵀ)⁻¹ = (A⁻¹)ᵀ. A is invertible iff det(A) ≠ 0. Use Gauss-Jordan elimination: [A|I] → [I|A⁻¹].",
+        "keywords": ["inverse", "matrix", "invertible", "Gauss-Jordan"]
+    },
+    {
+        "title": "Systems of Linear Equations",
+        "type": "method",
+        "content": "System Ax = b: If det(A) ≠ 0, unique solution x = A⁻¹b. Cramer's Rule: xᵢ = det(Aᵢ)/det(A) where Aᵢ has column i replaced by b. Gaussian elimination: Convert to row echelon form, back-substitute. Types of solutions: unique (det≠0), infinite (dependent equations), none (inconsistent).",
+        "keywords": ["linear equations", "Cramer", "Gaussian elimination", "system"]
+    },
+    {
+        "title": "Transpose Properties",
+        "type": "formula",
+        "content": "Transpose Aᵀ: Rows become columns. (Aᵀ)ᵢⱼ = Aⱼᵢ. Properties: (Aᵀ)ᵀ = A, (A+B)ᵀ = Aᵀ+Bᵀ, (cA)ᵀ = cAᵀ, (AB)ᵀ = BᵀAᵀ (order reverses). Symmetric matrix: A = Aᵀ. Skew-symmetric: A = -Aᵀ. Any matrix = symmetric + skew-symmetric: A = (A+Aᵀ)/2 + (A-Aᵀ)/2.",
+        "keywords": ["transpose", "symmetric", "skew-symmetric"]
+    },
+    {
+        "title": "Eigenvalues and Eigenvectors",
+        "type": "formula",
+        "content": "Eigenvalue equation: Av = λv, where λ is eigenvalue and v is eigenvector. Find eigenvalues: Solve det(A - λI) = 0 (characteristic equation). Properties: Sum of eigenvalues = trace(A), Product of eigenvalues = det(A). Eigenvectors for different eigenvalues are linearly independent.",
+        "keywords": ["eigenvalue", "eigenvector", "characteristic equation"]
+    },
+    {
+        "title": "Vector Operations",
+        "type": "formula",
+        "content": "Dot product: a·b = |a||b|cosθ = a₁b₁+a₂b₂+a₃b₃. Perpendicular if a·b=0. Cross product (3D): a×b = |a||b|sinθ·n̂, gives vector perpendicular to both. |a×b| = area of parallelogram. Properties: a×b = -b×a, a×a = 0, a·(b×c) = scalar triple product = volume of parallelepiped.",
+        "keywords": ["dot product", "cross product", "vector", "perpendicular"]
+    },
+    {
+        "title": "Rank of Matrix",
+        "type": "formula",
+        "content": "Rank = number of linearly independent rows (or columns) = number of non-zero rows in row echelon form. Properties: rank(A) ≤ min(m,n), rank(A) = rank(Aᵀ), rank(AB) ≤ min(rank(A),rank(B)). For Ax=b: solution exists iff rank(A) = rank([A|b]). Nullity + rank = number of columns.",
+        "keywords": ["rank", "linear independence", "row echelon", "nullity"]
+    }
+]

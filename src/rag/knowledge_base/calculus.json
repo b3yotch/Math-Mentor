@@ -1,0 +1,62 @@
+[
+    {
+        "title": "Derivative Definition",
+        "type": "formula",
+        "content": "The derivative of f(x) is defined as: f'(x) = lim(h→0) [f(x+h) - f(x)]/h. It represents the instantaneous rate of change or slope of tangent line at point x. Alternative notation: dy/dx, Df(x), or ẏ for time derivatives.",
+        "keywords": ["derivative", "definition", "limit", "rate of change"]
+    },
+    {
+        "title": "Basic Derivative Rules",
+        "type": "formula",
+        "content": "Basic derivatives: 1) d/dx(xⁿ) = nxⁿ⁻¹ (Power Rule), 2) d/dx(eˣ) = eˣ, 3) d/dx(aˣ) = aˣ·ln(a), 4) d/dx(ln(x)) = 1/x, 5) d/dx(log_a(x)) = 1/(x·ln(a)), 6) d/dx(constant) = 0, 7) d/dx(cf(x)) = c·f'(x)",
+        "keywords": ["derivative", "power rule", "exponential", "logarithm"]
+    },
+    {
+        "title": "Trigonometric Derivatives",
+        "type": "formula",
+        "content": "Trigonometric derivatives: d/dx(sin x) = cos x, d/dx(cos x) = -sin x, d/dx(tan x) = sec²x, d/dx(cot x) = -csc²x, d/dx(sec x) = sec x tan x, d/dx(csc x) = -csc x cot x. Inverse trig: d/dx(sin⁻¹x) = 1/√(1-x²), d/dx(cos⁻¹x) = -1/√(1-x²), d/dx(tan⁻¹x) = 1/(1+x²)",
+        "keywords": ["trigonometry", "derivative", "sin", "cos", "tan", "inverse"]
+    },
+    {
+        "title": "Product and Quotient Rules",
+        "type": "formula",
+        "content": "Product Rule: d/dx[f(x)g(x)] = f'(x)g(x) + f(x)g'(x). Quotient Rule: d/dx[f(x)/g(x)] = [f'(x)g(x) - f(x)g'(x)]/[g(x)]². Memory aid for quotient: 'Low d-high minus high d-low, over low squared'",
+        "keywords": ["product rule", "quotient rule", "derivative"]
+    },
+    {
+        "title": "Chain Rule",
+        "type": "formula",
+        "content": "Chain Rule: If y = f(g(x)), then dy/dx = f'(g(x)) · g'(x). In Leibniz notation: dy/dx = (dy/du)(du/dx). Example: d/dx(sin(x²)) = cos(x²) · 2x. The chain rule is essential for composite functions.",
+        "keywords": ["chain rule", "composite function", "derivative"]
+    },
+    {
+        "title": "Basic Integration Rules",
+        "type": "formula",
+        "content": "Basic integrals: 1) ∫xⁿdx = x^(n+1)/(n+1) + C (n≠-1), 2) ∫(1/x)dx = ln|x| + C, 3) ∫eˣdx = eˣ + C, 4) ∫aˣdx = aˣ/ln(a) + C, 5) ∫sin(x)dx = -cos(x) + C, 6) ∫cos(x)dx = sin(x) + C, 7) ∫sec²(x)dx = tan(x) + C",
+        "keywords": ["integration", "integral", "antiderivative"]
+    },
+    {
+        "title": "Integration by Substitution",
+        "type": "method",
+        "content": "Substitution method (u-substitution): If integral has form ∫f(g(x))g'(x)dx, let u = g(x), then du = g'(x)dx. The integral becomes ∫f(u)du. After integrating, substitute back u = g(x). Example: ∫2x·cos(x²)dx, let u=x², du=2xdx, gives ∫cos(u)du = sin(u) + C = sin(x²) + C",
+        "keywords": ["substitution", "u-substitution", "integration"]
+    },
+    {
+        "title": "Integration by Parts",
+        "type": "method",
+        "content": "Integration by parts: ∫u·dv = uv - ∫v·du. Choose u and dv using LIATE rule (Logarithmic, Inverse trig, Algebraic, Trigonometric, Exponential - u should be earlier in list). Example: ∫x·eˣdx, let u=x, dv=eˣdx, then du=dx, v=eˣ. Result: xeˣ - ∫eˣdx = xeˣ - eˣ + C",
+        "keywords": ["integration by parts", "LIATE", "integration"]
+    },
+    {
+        "title": "Limits and L'Hôpital's Rule",
+        "type": "formula",
+        "content": "L'Hôpital's Rule: If lim f(x)/g(x) gives 0/0 or ∞/∞ form, then lim f(x)/g(x) = lim f'(x)/g'(x). Can be applied repeatedly. Standard limits: lim(x→0) sin(x)/x = 1, lim(x→0) (1-cos(x))/x² = 1/2, lim(x→∞) (1+1/x)ˣ = e, lim(x→0) (eˣ-1)/x = 1",
+        "keywords": ["limit", "L'Hopital", "indeterminate form"]
+    },
+    {
+        "title": "Maxima and Minima",
+        "type": "method",
+        "content": "To find maxima/minima: 1) Find f'(x) and solve f'(x)=0 for critical points, 2) Use second derivative test: f''(x)>0 means local minimum, f''(x)<0 means local maximum, f''(x)=0 is inconclusive. Or use first derivative test: check sign change of f'(x) around critical point. For global extrema on [a,b], also check endpoints f(a) and f(b).",
+        "keywords": ["maxima", "minima", "optimization", "critical points"]
+    }
+]

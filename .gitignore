@@ -1,0 +1,10 @@
+venv/
+data/
+src/__pycache__/
+config/__pycache__
+src/data_pipeline/__pycache__/
+src/guardrails/__pycache__/
+src/input_processing/__pycache__/
+src/memory/__pycache__/
+src/rag/__pycache__/
+scripts/test_retriever.py

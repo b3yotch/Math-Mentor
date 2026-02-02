@@ -1,0 +1,62 @@
+[
+    {
+        "title": "Basic Probability Rules",
+        "type": "formula",
+        "content": "Probability basics: P(A) = favorable outcomes / total outcomes. Range: 0 ≤ P(A) ≤ 1. P(A') = 1 - P(A) (complement). P(A∪B) = P(A) + P(B) - P(A∩B) (addition rule). For mutually exclusive events: P(A∪B) = P(A) + P(B).",
+        "keywords": ["probability", "complement", "addition rule", "union"]
+    },
+    {
+        "title": "Conditional Probability",
+        "type": "formula",
+        "content": "Conditional probability: P(A|B) = P(A∩B)/P(B), probability of A given B has occurred. Multiplication rule: P(A∩B) = P(A|B)·P(B) = P(B|A)·P(A). For independent events: P(A|B) = P(A) and P(A∩B) = P(A)·P(B).",
+        "keywords": ["conditional probability", "independence", "multiplication rule"]
+    },
+    {
+        "title": "Bayes' Theorem",
+        "type": "formula",
+        "content": "Bayes' Theorem: P(A|B) = P(B|A)·P(A)/P(B). Extended form with partitions: P(Aᵢ|B) = P(B|Aᵢ)·P(Aᵢ) / Σⱼ P(B|Aⱼ)·P(Aⱼ). Used to update probability based on new evidence. Prior probability P(A) becomes posterior P(A|B) after observing B.",
+        "keywords": ["Bayes theorem", "posterior", "prior", "conditional"]
+    },
+    {
+        "title": "Permutations",
+        "type": "formula",
+        "content": "Permutation: Arrangement where order matters. P(n,r) = n!/(n-r)! = number of ways to arrange r items from n items. Special cases: P(n,n) = n! (all items). With repetition: n^r ways. Circular permutation: (n-1)! ways. With identical items: n!/(n₁!·n₂!·...·nₖ!)",
+        "keywords": ["permutation", "arrangement", "factorial", "order"]
+    },
+    {
+        "title": "Combinations",
+        "type": "formula",
+        "content": "Combination: Selection where order doesn't matter. C(n,r) = n!/[r!(n-r)!] = number of ways to choose r items from n items. Properties: C(n,r) = C(n,n-r), C(n,0) = C(n,n) = 1, C(n,1) = n. Pascal's identity: C(n,r) = C(n-1,r-1) + C(n-1,r).",
+        "keywords": ["combination", "selection", "binomial coefficient", "choose"]
+    },
+    {
+        "title": "Binomial Distribution",
+        "type": "formula",
+        "content": "Binomial distribution: For n independent trials with success probability p. P(X=k) = C(n,k)·pᵏ·(1-p)^(n-k). Mean: μ = np. Variance: σ² = np(1-p). Standard deviation: σ = √(np(1-p)). Most likely value (mode) is floor((n+1)p) or floor((n+1)p)-1.",
+        "keywords": ["binomial", "distribution", "trials", "probability"]
+    },
+    {
+        "title": "Expected Value",
+        "type": "formula",
+        "content": "Expected value (mean): E(X) = Σ xᵢ·P(xᵢ) for discrete, E(X) = ∫x·f(x)dx for continuous. Properties: E(aX+b) = aE(X)+b, E(X+Y) = E(X)+E(Y) (always), E(XY) = E(X)E(Y) (if independent). Expected value represents the long-run average.",
+        "keywords": ["expected value", "mean", "expectation"]
+    },
+    {
+        "title": "Variance and Standard Deviation",
+        "type": "formula",
+        "content": "Variance: Var(X) = E(X²) - [E(X)]² = E[(X-μ)²]. Properties: Var(aX+b) = a²Var(X), Var(X+Y) = Var(X)+Var(Y) (if independent). Standard deviation: σ = √Var(X). Coefficient of variation: CV = σ/μ × 100%.",
+        "keywords": ["variance", "standard deviation", "spread", "dispersion"]
+    },
+    {
+        "title": "Probability Distribution Properties",
+        "type": "formula",
+        "content": "For valid probability distribution: 1) All probabilities ≥ 0, 2) Sum of all probabilities = 1. CDF: F(x) = P(X≤x). Properties: F(-∞)=0, F(∞)=1, F is non-decreasing. PDF (continuous): f(x) = dF/dx, P(a<X<b) = ∫ₐᵇf(x)dx.",
+        "keywords": ["distribution", "CDF", "PDF", "probability"]
+    },
+    {
+        "title": "Counting Principles",
+        "type": "method",
+        "content": "Fundamental counting principle: If task A can be done in m ways and task B in n ways, then: A then B (sequence) = m×n ways, A or B (choice) = m+n ways (if mutually exclusive). Inclusion-exclusion: |A∪B| = |A|+|B|-|A∩B|. Pigeonhole principle: If n items in k boxes and n>k, at least one box has >1 item.",
+        "keywords": ["counting", "multiplication principle", "addition principle"]
+    }
+]

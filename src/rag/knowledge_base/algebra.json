@@ -1,0 +1,62 @@
+[
+    {
+        "title": "Quadratic Formula",
+        "type": "formula",
+        "content": "For equation ax² + bx + c = 0, the solutions are x = (-b ± √(b²-4ac)) / 2a. The discriminant D = b²-4ac determines the nature of roots: D > 0 gives two distinct real roots, D = 0 gives one repeated real root, D < 0 gives two complex conjugate roots.",
+        "keywords": ["quadratic", "roots", "discriminant", "formula"]
+    },
+    {
+        "title": "Vieta's Formulas for Quadratics",
+        "type": "formula",
+        "content": "For quadratic equation ax² + bx + c = 0 with roots α and β: Sum of roots α + β = -b/a, Product of roots αβ = c/a. These relations help find roots without solving the equation directly.",
+        "keywords": ["vieta", "sum of roots", "product of roots", "quadratic"]
+    },
+    {
+        "title": "Factoring Techniques",
+        "type": "method",
+        "content": "Common factoring techniques: 1) Common factor extraction: ab + ac = a(b+c), 2) Difference of squares: a² - b² = (a+b)(a-b), 3) Perfect square trinomials: a² + 2ab + b² = (a+b)², a² - 2ab + b² = (a-b)², 4) Sum/difference of cubes: a³ + b³ = (a+b)(a²-ab+b²), a³ - b³ = (a-b)(a²+ab+b²)",
+        "keywords": ["factoring", "difference of squares", "perfect square", "cubes"]
+    },
+    {
+        "title": "Completing the Square",
+        "type": "method",
+        "content": "To complete the square for ax² + bx + c: 1) Factor out 'a' from first two terms: a(x² + (b/a)x) + c, 2) Add and subtract (b/2a)²: a(x² + (b/a)x + (b/2a)² - (b/2a)²) + c, 3) Simplify: a(x + b/2a)² - b²/4a + c. This gives vertex form a(x-h)² + k where h = -b/2a, k = c - b²/4a.",
+        "keywords": ["completing square", "vertex form", "quadratic"]
+    },
+    {
+        "title": "Logarithm Properties",
+        "type": "formula",
+        "content": "Key logarithm properties: 1) log(ab) = log(a) + log(b), 2) log(a/b) = log(a) - log(b), 3) log(aⁿ) = n·log(a), 4) Change of base: log_a(x) = log(x)/log(a) = ln(x)/ln(a), 5) Special values: log_a(a) = 1, log_a(1) = 0, 6) log_a(a^x) = x, a^(log_a(x)) = x",
+        "keywords": ["logarithm", "log properties", "change of base"]
+    },
+    {
+        "title": "Exponent Rules",
+        "type": "formula",
+        "content": "Exponent rules: 1) aᵐ × aⁿ = aᵐ⁺ⁿ, 2) aᵐ ÷ aⁿ = aᵐ⁻ⁿ, 3) (aᵐ)ⁿ = aᵐⁿ, 4) (ab)ⁿ = aⁿbⁿ, 5) a⁰ = 1 (a≠0), 6) a⁻ⁿ = 1/aⁿ, 7) a^(1/n) = ⁿ√a, 8) a^(m/n) = ⁿ√(aᵐ)",
+        "keywords": ["exponents", "powers", "indices"]
+    },
+    {
+        "title": "Arithmetic Progression",
+        "type": "formula",
+        "content": "Arithmetic Progression (AP): Sequence where difference between consecutive terms is constant. If first term = a, common difference = d: nth term: aₙ = a + (n-1)d, Sum of n terms: Sₙ = n/2 × (2a + (n-1)d) = n/2 × (first + last), If a, b, c are in AP, then b = (a+c)/2 (arithmetic mean)",
+        "keywords": ["arithmetic progression", "AP", "common difference", "sequence"]
+    },
+    {
+        "title": "Geometric Progression",
+        "type": "formula",
+        "content": "Geometric Progression (GP): Sequence where ratio between consecutive terms is constant. If first term = a, common ratio = r: nth term: aₙ = a × r^(n-1), Sum of n terms: Sₙ = a(rⁿ-1)/(r-1) for r≠1, Sum to infinity (|r|<1): S∞ = a/(1-r), If a, b, c are in GP, then b² = ac (geometric mean: b = √(ac))",
+        "keywords": ["geometric progression", "GP", "common ratio", "sequence"]
+    },
+    {
+        "title": "Binomial Theorem",
+        "type": "formula",
+        "content": "Binomial Theorem: (a+b)ⁿ = Σ(k=0 to n) C(n,k) × a^(n-k) × b^k, where C(n,k) = n!/(k!(n-k)!) is the binomial coefficient. General term T(r+1) = C(n,r) × a^(n-r) × b^r. Special cases: (1+x)ⁿ = 1 + nx + n(n-1)x²/2! + ..., Middle term(s): If n is even, middle term is T(n/2+1); if n is odd, two middle terms are T((n+1)/2) and T((n+3)/2)",
+        "keywords": ["binomial", "expansion", "pascal triangle", "combination"]
+    },
+    {
+        "title": "Polynomial Division",
+        "type": "method",
+        "content": "For polynomial P(x) divided by (x-a): P(x) = (x-a)Q(x) + R, where R = P(a) is the remainder (Remainder Theorem). If P(a) = 0, then (x-a) is a factor of P(x) (Factor Theorem). For synthetic division, use coefficients and the root to find quotient efficiently.",
+        "keywords": ["polynomial", "division", "remainder theorem", "factor theorem"]
+    }
+]

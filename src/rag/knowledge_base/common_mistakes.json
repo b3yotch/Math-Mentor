@@ -1,0 +1,62 @@
+[
+    {
+        "title": "Quadratic Formula Sign Errors",
+        "type": "pitfall",
+        "content": "Common mistakes in quadratic formula: 1) Forgetting the ± sign, giving only one root, 2) Sign error in -b (especially when b is negative), 3) Not dividing entire numerator by 2a, 4) Arithmetic errors in b²-4ac (especially with negative numbers). Always double-check by substituting roots back into original equation.",
+        "keywords": ["quadratic", "mistake", "sign error", "formula"]
+    },
+    {
+        "title": "Derivative Chain Rule Errors",
+        "type": "pitfall",
+        "content": "Common chain rule mistakes: 1) Forgetting to multiply by the inner derivative, e.g., d/dx(sin(x²)) = cos(x²)·2x, not just cos(x²), 2) Applying chain rule when not needed (simple functions), 3) Wrong order of operations in nested functions. Remember: derivative of outer × derivative of inner.",
+        "keywords": ["chain rule", "derivative", "mistake", "composite"]
+    },
+    {
+        "title": "Integration Constant",
+        "type": "pitfall",
+        "content": "Integration mistakes: 1) Forgetting +C in indefinite integrals, 2) Adding C in definite integrals (not needed), 3) Wrong sign when integrating trig functions: ∫sin(x)dx = -cos(x)+C (negative!), 4) Forgetting to substitute limits properly in definite integrals: [F(x)]ₐᵇ = F(b) - F(a).",
+        "keywords": ["integration", "constant", "mistake", "definite integral"]
+    },
+    {
+        "title": "Logarithm Domain Errors",
+        "type": "pitfall",
+        "content": "Logarithm mistakes: 1) Forgetting domain restriction: log(x) only defined for x > 0, 2) Wrong application of log rules: log(a+b) ≠ log(a)+log(b), 3) Confusing log(a/b) = log(a)-log(b) with log(a)-log(b) = log(a-b), 4) Base confusion: ln = log_e, log often means log₁₀.",
+        "keywords": ["logarithm", "domain", "mistake", "log rules"]
+    },
+    {
+        "title": "Probability Addition vs Multiplication",
+        "type": "pitfall",
+        "content": "Probability mistakes: 1) Using addition rule for 'AND' problems (should multiply for independent events), 2) Using multiplication for 'OR' problems (should add and subtract overlap), 3) Forgetting to subtract P(A∩B) in P(A∪B), 4) Assuming independence when events are dependent. Check: 'and' often means multiply, 'or' often means add.",
+        "keywords": ["probability", "addition", "multiplication", "mistake"]
+    },
+    {
+        "title": "Matrix Multiplication Order",
+        "type": "pitfall",
+        "content": "Matrix mistakes: 1) AB ≠ BA in general - order matters!, 2) Trying to multiply incompatible dimensions (columns of A must equal rows of B), 3) Distributing incorrectly: A(B+C) = AB+AC, but (A+B)C = AC+BC, 4) (AB)⁻¹ = B⁻¹A⁻¹ not A⁻¹B⁻¹. Always check dimensions before multiplying.",
+        "keywords": ["matrix", "multiplication", "order", "mistake", "non-commutative"]
+    },
+    {
+        "title": "Exponent and Power Errors",
+        "type": "pitfall",
+        "content": "Exponent mistakes: 1) (a+b)² ≠ a²+b² (must use (a+b)² = a²+2ab+b²), 2) aᵐ·aⁿ = aᵐ⁺ⁿ, not aᵐⁿ, 3) (aᵐ)ⁿ = aᵐⁿ, not aᵐ⁺ⁿ, 4) a⁰ = 1 (not 0), 5) Negative exponents: a⁻ⁿ = 1/aⁿ, not -aⁿ. Be especially careful with negative bases and even/odd exponents.",
+        "keywords": ["exponent", "power", "mistake", "square"]
+    },
+    {
+        "title": "Trigonometry Angle Modes",
+        "type": "pitfall",
+        "content": "Trig mistakes: 1) Calculator in wrong mode (radians vs degrees), 2) Forgetting sin²x + cos²x = 1, 3) Wrong signs in different quadrants, 4) Inverse trig domain restrictions: sin⁻¹ output in [-π/2, π/2], cos⁻¹ in [0, π], 5) Confusing sin⁻¹(x) with 1/sin(x). Use ASTC rule for signs: All, Sin, Tan, Cos positive in Q1-Q4.",
+        "keywords": ["trigonometry", "radians", "degrees", "mistake", "quadrant"]
+    },
+    {
+        "title": "Cancellation Errors",
+        "type": "pitfall",
+        "content": "Cancellation mistakes: 1) Canceling terms that are added (can only cancel factors): (a+b)/a ≠ 1+b, 2) Canceling incorrectly in fractions: (x²-1)/(x-1) = x+1, not x-1, 3) Forgetting restrictions when canceling: x/x = 1 only when x≠0, 4) Cross-multiplication errors in proportions. Factor first, then cancel common factors only.",
+        "keywords": ["cancellation", "fraction", "mistake", "simplification"]
+    },
+    {
+        "title": "Limit Calculation Errors",
+        "type": "pitfall",
+        "content": "Limit mistakes: 1) Plugging in value directly without checking for 0/0 form, 2) Applying L'Hôpital's rule when not applicable (must be 0/0 or ∞/∞), 3) Wrong manipulation of indeterminate forms, 4) Forgetting to check left and right limits for existence. Always check the form first, then choose appropriate method: factoring, L'Hôpital, or standard limits.",
+        "keywords": ["limit", "L'Hopital", "indeterminate", "mistake"]
+    }
+]
