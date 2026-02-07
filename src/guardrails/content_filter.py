@@ -116,6 +116,20 @@ class ContentFilter:
             # JEE/competition specific
             r"\bjee\b|\biit\b|\bjee\s*(main|advanced)\b",
             r"\bobjective|mcq|multiple\s*choice\b",
+
+            r"\bprobability\s+of\b",
+            r"\bwhat\s+is\s+the\s+probability\b",
+            r"\bhow\s+many\b",
+            r"\bhow\s+much\b",
+            r"\bfind\s+the\s+(probability|value|number|sum|mean)\b",
+            r"\bcalculate\s+the\b",
+            r"\b(deck|cards?|dice|coin|balls?|marbles?)\b",  # Common probability objects
+            r"\b(52|6|2)\s*(cards?|sided|faces?)\b",  # Specific numbers in probability
+            r"\b(king|queen|jack|ace|hearts?|spades?|diamonds?|clubs?)\b",  # Card terms
+            r"\b(heads?|tails?)\b",  # Coin terms
+            r"\b(fair|biased|random|chance|odds|likely|likelihood)\b",
+            r"\b(getting|drawing|picking|selecting|choosing)\b",
+            r"\b(without replacement|with replacement)\b",
         ]
         
         # Word problem context indicators

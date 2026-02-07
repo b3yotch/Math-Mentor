@@ -8,3 +8,4 @@ src/input_processing/__pycache__/
 src/memory/__pycache__/
 src/rag/__pycache__/
 scripts/test_retriever.py
+.env

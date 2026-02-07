@@ -1,7 +1,7 @@
 # app.py
 """
 Math Mentor - AI-Powered JEE Math Tutor
-Complete Version with Text, Image, and Audio Input + Guardrails
+Complete Version with Text, Image, and Audio Input + IMPROVED Guardrails
 """
 
 import streamlit as st
@@ -9,9 +9,19 @@ import os
 import sys
 import tempfile
 import json
+import warnings
+import logging
 from datetime import datetime
 from typing import Tuple, Optional
 from dotenv import load_dotenv
+
+# ============================================================
+# SUPPRESS NOISY LOGS (Must be before other imports)
+# ============================================================
+warnings.filterwarnings("ignore")
+for logger_name in ["httpx", "httpcore", "faiss", "transformers", 
+                    "sentence_transformers", "huggingface_hub"]:
+    logging.getLogger(logger_name).setLevel(logging.ERROR)
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -33,9 +43,15 @@ st.set_page_config(
 from src.input_processing.schemas import CanonicalInput
 from src.input_processing.math_normalizer import MathNormalizer
 from src.input_processing.ocr_processor import OCRProcessor
-from src.rag.retriever import RAGRetriever
+from src.rag.retriever import MathRAGRetriever
 from src.memory.memory_manager import MemoryManager
-from src.guardrails.guardrails_manager import GuardrailsManager, GuardrailsReport
+
+# Import improved guardrails
+from src.guardrails.guardrails_manager import (
+    GuardrailsManager, 
+    GuardrailsReport,
+    CheckStatus
+)
 
 
 # ============================================================
@@ -46,6 +62,7 @@ def load_ocr():
     """Load OCR processor (cached)."""
     return OCRProcessor()
 
+
 @st.cache_resource
 def load_asr():
     """Load ASR processor (cached)."""
@@ -53,23 +70,30 @@ def load_asr():
         from src.input_processing.asr_processor import ASRProcessor
         return ASRProcessor(model_size="base")
     except Exception as e:
-        st.warning(f"ASR not available: {e}")
         return None
+
 
 @st.cache_resource
 def load_normalizer():
     """Load math normalizer (cached)."""
     return MathNormalizer()
 
+
 @st.cache_resource
 def load_retriever():
     """Load RAG retriever (cached)."""
-    return RAGRetriever()
+    try:
+        return MathRAGRetriever()
+    except Exception as e:
+        st.warning(f"RAG not available: {e}")
+        return None
+
 
 @st.cache_resource
 def load_memory():
     """Load memory manager (cached)."""
     return MemoryManager()
+
 
 @st.cache_resource
 def load_groq_client():
@@ -85,64 +109,176 @@ def load_groq_client():
         st.error("Please install groq: pip install groq")
         return None
 
+
 @st.cache_resource
 def load_guardrails():
-    """Load guardrails manager."""
-    return GuardrailsManager()
+    """Load guardrails manager (cached)."""
+    return GuardrailsManager(
+        strict_mode=False,
+        enable_output_validation=True
+    )
 
 
 # ============================================================
-# Input Processing with Guardrails
+# Helper Functions for Guardrails
 # ============================================================
-def process_input_with_guardrails(text: str, input_type: str) -> Tuple[Optional[CanonicalInput], GuardrailsReport]:
+def get_detected_topic(text: str) -> str:
     """
-    Process input with guardrails validation.
-    
-    Returns:
-        Tuple of (CanonicalInput or None, GuardrailsReport)
+    Get detected math topic from text.
+    Uses content filter's topic classification.
     """
     guardrails = load_guardrails()
     
-    # Run input guardrails
-    report = guardrails.check_input(text)
+    # Get the math score and metadata from content filter
+    sanitized = guardrails.sanitize(text)
+    safety_check = guardrails.content_filter.check_input(sanitized)
     
-    if not report.passed:
-        return None, report
+    # Category from safety check often contains topic info
+    category = safety_check.category
     
-    # Process if passed
-    if input_type == "text":
-        canonical = process_text_input(text)
-    else:
-        canonical = CanonicalInput(
-            input_type=input_type,
-            extracted_text=text,
-            confidence_score=1.0
+    # Map category to display-friendly topic
+    topic_map = {
+        "approved": "general",
+        "math": "general",
+        "algebra": "Algebra",
+        "calculus": "Calculus",
+        "trigonometry": "Trigonometry",
+        "probability": "Probability",
+        "statistics": "Statistics",
+        "geometry": "Geometry",
+        "linear_algebra": "Linear Algebra",
+    }
+    
+    return topic_map.get(category, "Mathematics")
+
+
+def display_guardrails_error(report: GuardrailsReport):
+    """Display guardrails error with suggestions."""
+    guardrails = load_guardrails()
+    
+    # Get rejection message
+    rejection_msg = guardrails.get_rejection_message(report)
+    st.error(f"🛡️ **Input Blocked:** {rejection_msg}")
+    
+    # Get and display suggestions
+    suggestions = guardrails.get_suggestions(report)
+    if suggestions:
+        st.info("💡 **Suggestions:**")
+        for suggestion in suggestions[:3]:  # Limit to 3 suggestions
+            st.markdown(f"- {suggestion}")
+
+
+def display_guardrails_warnings(report: GuardrailsReport):
+    """Display any warnings from guardrails."""
+    if report.warnings:
+        for warning in report.warnings:
+            st.warning(f"⚠️ {warning}")
+
+
+# ============================================================
+# Input Processing Functions
+# ============================================================
+def process_text_input(text: str) -> CanonicalInput:
+    """Process text input."""
+    normalizer = load_normalizer()
+    normalized = normalizer.normalize(text)
+    
+    return CanonicalInput(
+        input_type="text",
+        extracted_text=normalized,
+        original_extraction=text,
+        confidence_score=1.0
+    )
+
+
+def process_image_input(image_file) -> CanonicalInput:
+    """Process image input with OCR."""
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp:
+        tmp.write(image_file.getvalue())
+        tmp_path = tmp.name
+    
+    ocr = load_ocr()
+    result = ocr.process(tmp_path)
+    
+    # Apply learned corrections
+    memory = load_memory()
+    corrected_text = memory.apply_corrections(result.extracted_text, 'image')
+    result.extracted_text = corrected_text
+    
+    os.unlink(tmp_path)
+    
+    return result
+
+
+def process_audio_input(audio_file) -> CanonicalInput:
+    """Process audio input with ASR."""
+    asr = load_asr()
+    
+    if asr is None:
+        return CanonicalInput(
+            input_type="audio",
+            extracted_text="",
+            original_extraction="",
+            confidence_score=0.0,
+            metadata={"error": "ASR not available. Install whisper: pip install openai-whisper"}
         )
     
-    return canonical, report
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as tmp:
+        tmp.write(audio_file.getvalue())
+        tmp_path = tmp.name
+    
+    result = asr.process(tmp_path)
+    
+    memory = load_memory()
+    corrected_text = memory.apply_corrections(result.extracted_text, 'audio')
+    result.extracted_text = corrected_text
+    
+    os.unlink(tmp_path)
+    
+    return result
 
 
-# ============================================================
-# Display Guardrails Status in Sidebar
-# ============================================================
-def render_guardrails_status():
-    """Show guardrails status in sidebar."""
-    st.sidebar.divider()
-    st.sidebar.subheader("🛡️ Guardrails")
+def get_rag_context(query: str, top_k: int = 3):
+    """Get relevant context from RAG."""
+    retriever = load_retriever()
+    if retriever is None:
+        return []
     
-    guardrails = load_guardrails()
+    try:
+        results = retriever.retrieve(query, top_k=top_k)
+        # Format results for display
+        formatted = []
+        for r in results:
+            formatted.append({
+                'title': r.get('type', 'Unknown').title(),
+                'topic': f"{r.get('topic', 'general')}/{r.get('subtopic', '')}",
+                'content': r.get('content', ''),
+                'score': r.get('score', 0)
+            })
+        return formatted
+    except Exception as e:
+        st.warning(f"RAG retrieval error: {e}")
+        return []
+
+
+def save_to_memory(canonical: CanonicalInput, rag_context, result, topic=None):
+    """Save solved problem to memory."""
+    memory = load_memory()
     
-    with st.sidebar.expander("Active Protections"):
-        st.markdown("""
-        - ✅ Input validation
-        - ✅ Prompt injection detection
-        - ✅ Content safety filter
-        - ✅ Topic enforcement
-        - ✅ Output validation
-        - ✅ Hallucination detection
-        """)
+    problem_id = memory.save_solved_problem(
+        input_type=canonical.input_type,
+        original_input=canonical.original_extraction,
+        extracted_text=canonical.extracted_text,
+        topic=topic,
+        solution=result.get('solution', ''),
+        explanation=result.get('explanation', ''),
+        verification_result=result.get('verification'),
+        rag_context=rag_context,
+        confidence_score=canonical.confidence_score,
+        was_human_edited=canonical.was_human_edited
+    )
     
-    st.sidebar.caption("All inputs and outputs are validated")
+    return problem_id
 
 
 # ============================================================
@@ -219,6 +355,7 @@ Provide a complete solution with all steps. Return valid JSON only."""
         content = response.choices[0].message.content
         
         try:
+            # Extract JSON from response
             if "```json" in content:
                 content = content.split("```json")[1].split("```")[0]
             elif "```" in content:
@@ -253,95 +390,6 @@ Provide a complete solution with all steps. Return valid JSON only."""
             "verification": "Could not verify due to error",
             "explanation": "An error occurred while solving. Please try again."
         }
-
-
-# ============================================================
-# Input Processing Functions
-# ============================================================
-def process_text_input(text: str) -> CanonicalInput:
-    """Process text input."""
-    normalizer = load_normalizer()
-    normalized = normalizer.normalize(text)
-    
-    return CanonicalInput(
-        input_type="text",
-        extracted_text=normalized,
-        original_extraction=text,
-        confidence_score=1.0
-    )
-
-
-def process_image_input(image_file) -> CanonicalInput:
-    """Process image input with OCR."""
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp:
-        tmp.write(image_file.getvalue())
-        tmp_path = tmp.name
-    
-    ocr = load_ocr()
-    result = ocr.process(tmp_path)
-    
-    # Apply learned corrections
-    memory = load_memory()
-    corrected_text = memory.apply_corrections(result.extracted_text, 'image')
-    result.extracted_text = corrected_text
-    
-    os.unlink(tmp_path)
-    
-    return result
-
-
-def process_audio_input(audio_file) -> CanonicalInput:
-    """Process audio input with ASR."""
-    asr = load_asr()
-    
-    if asr is None:
-        return CanonicalInput(
-            input_type="audio",
-            extracted_text="",
-            original_extraction="",
-            confidence_score=0.0,
-            metadata={"error": "ASR not available. Install whisper: pip install openai-whisper"}
-        )
-    
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as tmp:
-        tmp.write(audio_file.getvalue())
-        tmp_path = tmp.name
-    
-    result = asr.process(tmp_path)
-    
-    memory = load_memory()
-    corrected_text = memory.apply_corrections(result.extracted_text, 'audio')
-    result.extracted_text = corrected_text
-    
-    os.unlink(tmp_path)
-    
-    return result
-
-
-def get_rag_context(query: str, top_k: int = 3):
-    """Get relevant context from RAG."""
-    retriever = load_retriever()
-    return retriever.retrieve(query, top_k=top_k)
-
-
-def save_to_memory(canonical: CanonicalInput, rag_context, result, topic=None):
-    """Save solved problem to memory."""
-    memory = load_memory()
-    
-    problem_id = memory.save_solved_problem(
-        input_type=canonical.input_type,
-        original_input=canonical.original_extraction,
-        extracted_text=canonical.extracted_text,
-        topic=topic,
-        solution=result.get('solution', ''),
-        explanation=result.get('explanation', ''),
-        verification_result=result.get('verification'),
-        rag_context=rag_context,
-        confidence_score=canonical.confidence_score,
-        was_human_edited=canonical.was_human_edited
-    )
-    
-    return problem_id
 
 
 # ============================================================
@@ -382,12 +430,22 @@ def render_sidebar():
         else:
             st.error("❌ Groq API Missing")
         
+        # RAG Status
+        retriever = load_retriever()
+        if retriever:
+            st.success("✅ RAG Knowledge Base")
+        else:
+            st.warning("⚠️ RAG Not Available")
+        
+        # ASR Status
         asr = load_asr()
         if asr:
             st.success("✅ Whisper ASR Ready")
         else:
             st.warning("⚠️ Whisper ASR Not Available")
             st.caption("pip install openai-whisper")
+        
+        st.divider()
         
         # 🛡️ GUARDRAILS STATUS
         render_guardrails_status()
@@ -401,13 +459,55 @@ def render_sidebar():
             stats = memory.get_statistics()
             col1, col2 = st.columns(2)
             with col1:
-                st.metric("Solved", stats['total_problems'])
+                st.metric("Solved", stats.get('total_problems', 0))
             with col2:
-                st.metric("Feedback", stats['feedback']['total_feedback'])
+                feedback = stats.get('feedback', {})
+                st.metric("Feedback", feedback.get('total_feedback', 0))
         except:
             st.caption("No data yet")
         
         return input_mode, show_rag, show_debug, top_k
+
+
+def render_guardrails_status():
+    """Show guardrails status in sidebar."""
+    st.subheader("🛡️ Guardrails")
+    
+    with st.expander("Active Protections", expanded=False):
+        st.markdown("""
+        ✅ Input validation & sanitization  
+        ✅ Prompt injection detection  
+        ✅ Content safety filter  
+        ✅ Math topic enforcement  
+        ✅ Word problem support  
+        ✅ Output validation  
+        ✅ Harmful content blocking
+        """)
+    
+    guardrails = load_guardrails()
+    mode = "Strict" if guardrails.strict_mode else "Standard"
+    st.caption(f"Mode: {mode}")
+
+
+def render_topic_badge(topic: str):
+    """Display topic badge if detected."""
+    if topic and topic.lower() not in ["general", "mathematics", "approved"]:
+        st.success(f"📚 Detected Topic: **{topic.replace('_', ' ').title()}**")
+
+
+def render_confidence_indicator(confidence: float):
+    """Display confidence indicator."""
+    if confidence >= 0.7:
+        color = "green"
+        label = "High"
+    elif confidence >= 0.5:
+        color = "orange"
+        label = "Medium"
+    else:
+        color = "red"
+        label = "Low"
+    
+    st.markdown(f"**Confidence:** :{color}[{confidence:.0%} ({label})]")
 
 
 def render_input_section(input_mode: str):
@@ -426,7 +526,9 @@ def render_input_section(input_mode: str):
             "Integrate 3x^2 + 2x dx",
             "What is the probability of getting exactly 2 heads in 3 coin tosses?",
             "Find the determinant of matrix [[1,2],[3,4]]",
-            "Find the limit of (x^2 - 1)/(x - 1) as x approaches 1"
+            "Find the limit of (x^2 - 1)/(x - 1) as x approaches 1",
+            "John has 5 apples. Mary gives him 3 more. How many does he have?",
+            "A train travels at 60 km/h for 2 hours. Find the distance."
         ]
         
         selected = st.selectbox("📋 Quick Examples:", examples)
@@ -444,24 +546,20 @@ def render_input_section(input_mode: str):
             report = guardrails.check_input(text_input)
             
             if not report.passed:
-                st.error(f"🛡️ **Input Blocked:** {report.blocked_reason}")
-                
-                # Show helpful suggestions
-                if report.input_check and report.input_check.suggestions:
-                    st.info("💡 **Suggestions:**")
-                    for suggestion in report.input_check.suggestions:
-                        st.markdown(f"- {suggestion}")
-                
+                display_guardrails_error(report)
                 return None
             
             # Show warnings
-            for warning in report.warnings:
-                st.warning(f"⚠️ {warning}")
+            display_guardrails_warnings(report)
             
-            # Show detected topic badge
-            topic = guardrails.get_detected_topic(text_input)
-            if topic != "general":
-                st.success(f"📚 Topic: **{topic.replace('_', ' ').title()}**")
+            # Show detected topic
+            topic = report.metadata.get('category', 'general')
+            render_topic_badge(topic)
+            
+            # Show math confidence
+            confidence = report.metadata.get('math_confidence', 1.0)
+            if confidence < 0.8:
+                st.caption(f"Math confidence: {confidence:.0%}")
             
             # Process input
             canonical = process_text_input(text_input)
@@ -489,7 +587,7 @@ def render_input_section(input_mode: str):
             col1, col2 = st.columns([1, 1])
             
             with col1:
-                st.image(uploaded_file, caption="Uploaded Image", use_column_width=True)
+                st.image(uploaded_file, caption="Uploaded Image", use_container_width=True)
             
             with col2:
                 with st.spinner("🔍 Running OCR..."):
@@ -500,25 +598,16 @@ def render_input_section(input_mode: str):
                     report = guardrails.check_input(canonical.extracted_text)
                     
                     if not report.passed:
-                        st.error(f"🛡️ **Input Blocked:** {report.blocked_reason}")
-                        if report.input_check and report.input_check.suggestions:
-                            st.info("💡 **Suggestions:**")
-                            for suggestion in report.input_check.suggestions:
-                                st.markdown(f"- {suggestion}")
+                        display_guardrails_error(report)
                         return None
                     
-                    # Show warnings
-                    for warning in report.warnings:
-                        st.warning(f"⚠️ {warning}")
+                    display_guardrails_warnings(report)
                     
-                    # Show detected topic
-                    topic = guardrails.get_detected_topic(canonical.extracted_text)
-                    if topic != "general":
-                        st.success(f"📚 Topic: **{topic.replace('_', ' ').title()}**")
+                    topic = report.metadata.get('category', 'general')
+                    render_topic_badge(topic)
                 
                 # Confidence indicator
-                conf_color = "green" if canonical.confidence_score > 0.7 else "orange" if canonical.confidence_score > 0.5 else "red"
-                st.markdown(f"**Confidence:** :{conf_color}[{canonical.confidence_score:.0%}]")
+                render_confidence_indicator(canonical.confidence_score)
                 
                 # Editable text
                 edited_text = st.text_area(
@@ -532,7 +621,7 @@ def render_input_section(input_mode: str):
                     # Re-check guardrails on edited text
                     edit_report = guardrails.check_input(edited_text)
                     if not edit_report.passed:
-                        st.error(f"🛡️ **Edit Blocked:** {edit_report.blocked_reason}")
+                        display_guardrails_error(edit_report)
                         return None
                     
                     memory = load_memory()
@@ -592,69 +681,63 @@ def render_input_section(input_mode: str):
                 
                 if canonical.metadata.get('error'):
                     st.error(canonical.metadata['error'])
-                else:
-                    # 🛡️ GUARDRAILS CHECK on transcribed text
-                    if canonical.extracted_text:
-                        report = guardrails.check_input(canonical.extracted_text)
-                        
-                        if not report.passed:
-                            st.error(f"🛡️ **Input Blocked:** {report.blocked_reason}")
-                            if report.input_check and report.input_check.suggestions:
-                                st.info("💡 **Suggestions:**")
-                                for suggestion in report.input_check.suggestions:
-                                    st.markdown(f"- {suggestion}")
-                            return None
-                        
-                        for warning in report.warnings:
-                            st.warning(f"⚠️ {warning}")
-                        
-                        topic = guardrails.get_detected_topic(canonical.extracted_text)
-                        if topic != "general":
-                            st.success(f"📚 Topic: **{topic.replace('_', ' ').title()}**")
+                    return None
+                
+                # 🛡️ GUARDRAILS CHECK on transcribed text
+                if canonical.extracted_text:
+                    report = guardrails.check_input(canonical.extracted_text)
                     
-                    conf_color = "green" if canonical.confidence_score > 0.7 else "orange" if canonical.confidence_score > 0.5 else "red"
-                    st.markdown(f"**Confidence:** :{conf_color}[{canonical.confidence_score:.0%}]")
+                    if not report.passed:
+                        display_guardrails_error(report)
+                        return None
                     
-                    if canonical.original_extraction:
-                        st.caption("Raw transcription:")
-                        st.text(canonical.original_extraction)
+                    display_guardrails_warnings(report)
                     
-                    edited_text = st.text_area(
-                        "Edit transcription if needed:",
-                        value=canonical.extracted_text,
-                        height=100,
-                        key="asr_edit"
-                    )
+                    topic = report.metadata.get('category', 'general')
+                    render_topic_badge(topic)
+                
+                render_confidence_indicator(canonical.confidence_score)
+                
+                if canonical.original_extraction:
+                    st.caption("Raw transcription:")
+                    st.text(canonical.original_extraction)
+                
+                edited_text = st.text_area(
+                    "Edit transcription if needed:",
+                    value=canonical.extracted_text,
+                    height=100,
+                    key="asr_edit"
+                )
+                
+                if edited_text != canonical.extracted_text:
+                    # Re-check guardrails on edited text
+                    edit_report = guardrails.check_input(edited_text)
+                    if not edit_report.passed:
+                        display_guardrails_error(edit_report)
+                        return None
                     
-                    if edited_text != canonical.extracted_text:
-                        # Re-check guardrails on edited text
-                        edit_report = guardrails.check_input(edited_text)
-                        if not edit_report.passed:
-                            st.error(f"🛡️ **Edit Blocked:** {edit_report.blocked_reason}")
-                            return None
-                        
-                        memory = load_memory()
-                        memory.learn_extraction_correction('audio', canonical.extracted_text, edited_text)
-                        canonical.original_extraction = canonical.extracted_text
-                        canonical.extracted_text = edited_text
-                        canonical.was_human_edited = True
-                        st.success("✏️ Correction saved for learning!")
-                    
-                    if canonical.needs_hitl():
-                        st.warning("⚠️ Low confidence - please verify the text above")
-                    
-                    with st.expander("🔢 Math Phrase Conversions Applied"):
-                        st.markdown("""
-                        The following spoken phrases are automatically converted:
-                        - "square root of" → √
-                        - "x squared" → x^2
-                        - "raised to the power of" → ^
-                        - "integral of" → ∫
-                        - "derivative of" → d/dx
-                        - "theta", "pi", "alpha" → θ, π, α
-                        - "divided by" → /
-                        - "times" → *
-                        """)
+                    memory = load_memory()
+                    memory.learn_extraction_correction('audio', canonical.extracted_text, edited_text)
+                    canonical.original_extraction = canonical.extracted_text
+                    canonical.extracted_text = edited_text
+                    canonical.was_human_edited = True
+                    st.success("✏️ Correction saved for learning!")
+                
+                if canonical.needs_hitl():
+                    st.warning("⚠️ Low confidence - please verify the text above")
+                
+                with st.expander("🔢 Math Phrase Conversions Applied"):
+                    st.markdown("""
+                    The following spoken phrases are automatically converted:
+                    - "square root of" → √
+                    - "x squared" → x²
+                    - "raised to the power of" → ^
+                    - "integral of" → ∫
+                    - "derivative of" → d/dx
+                    - "theta", "pi", "alpha" → θ, π, α
+                    - "divided by" → /
+                    - "times" → ×
+                    """)
     
     return canonical
 
@@ -690,30 +773,29 @@ def render_solution_section(canonical: CanonicalInput, show_rag: bool, show_debu
         status.info("🛡️ Validating response...")
         progress.progress(70)
         
-        # ✅ FIX: Pass the entire result dictionary, not just the solution string
         output_report = guardrails.check_output(result)
         
         if not output_report.passed:
             progress.empty()
             status.empty()
-            st.error(f"🛡️ **Response Filtered:** {output_report.blocked_reason}")
+            
+            st.error(f"🛡️ **Response Filtered:** {guardrails.get_rejection_message(output_report)}")
             st.warning("The AI response didn't pass safety checks. Please try rephrasing your question.")
             
             if show_debug:
                 with st.expander("🐛 Debug Info"):
                     st.json({
-                        "errors": output_report.output_check.errors if output_report.output_check else [],
+                        "status": output_report.status.value,
+                        "blocked_reason": output_report.blocked_reason,
                         "warnings": output_report.warnings
                     })
             return
         
         # Show output warnings
-        if output_report.warnings:
-            for warning in output_report.warnings:
-                st.warning(f"⚠️ {warning}")
+        display_guardrails_warnings(output_report)
         
         # Format output safely
-        result = guardrails.format_output(result)
+        result = guardrails.format_output_for_display(result)
         
         # Step 4: Save
         status.info("💾 Saving to memory...")
@@ -730,19 +812,20 @@ def render_solution_section(canonical: CanonicalInput, show_rag: bool, show_debu
         # Display Results
         st.divider()
         
-        # Guardrails confidence badge
-        if output_report.output_check and hasattr(output_report.output_check, 'confidence'):
-            conf = output_report.output_check.confidence
-            conf_color = "green" if conf > 0.8 else "orange" if conf > 0.5 else "red"
-            st.markdown(f"🛡️ Response Confidence: :{conf_color}[{conf:.0%}]")
-        
-        # Input type badge
-        input_badges = {
-            "text": "📝 Text Input",
-            "image": "📷 Image Input (OCR)",
-            "audio": "🎤 Audio Input (ASR)"
-        }
-        st.caption(input_badges.get(canonical.input_type, "Unknown"))
+        # Status badges
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            input_badges = {
+                "text": "📝 Text",
+                "image": "📷 OCR",
+                "audio": "🎤 ASR"
+            }
+            st.caption(f"Input: {input_badges.get(canonical.input_type, 'Unknown')}")
+        with col2:
+            st.caption(f"RAG Docs: {len(rag_context)}")
+        with col3:
+            status_color = "green" if output_report.status == CheckStatus.PASSED else "orange"
+            st.caption(f"Validation: :{status_color}[{output_report.status.value}]")
         
         # Debug info
         if show_debug:
@@ -753,11 +836,12 @@ def render_solution_section(canonical: CanonicalInput, show_rag: bool, show_debu
                     "was_edited": canonical.was_human_edited,
                     "rag_docs": len(rag_context),
                     "similar_problems": len(similar),
-                    "guardrails_passed": output_report.passed,
-                    "guardrails_warnings": output_report.warnings
+                    "guardrails_status": output_report.status.value,
+                    "guardrails_warnings": output_report.warnings,
+                    "metadata": output_report.metadata
                 })
                 if result.get('raw_response'):
-                    st.code(result.get('raw_response', '')[:1000])
+                    st.text_area("Raw Response", result.get('raw_response', '')[:2000], height=200)
         
         # Error display
         if result.get('error'):
@@ -765,10 +849,13 @@ def render_solution_section(canonical: CanonicalInput, show_rag: bool, show_debu
         
         # RAG Context
         if show_rag and rag_context:
-            with st.expander("📚 Retrieved Knowledge", expanded=False):
+            with st.expander(f"📚 Retrieved Knowledge ({len(rag_context)} docs)", expanded=False):
                 for i, doc in enumerate(rag_context, 1):
-                    st.markdown(f"**[{i}] {doc['title']}** ({doc['topic']})")
-                    st.caption(doc['content'][:300] + "...")
+                    score = doc.get('score', 0)
+                    score_color = "green" if score > 0.7 else "orange" if score > 0.5 else "red"
+                    
+                    st.markdown(f"**[{i}] {doc['title']}** ({doc['topic']}) - :{score_color}[{score:.2f}]")
+                    st.caption(doc['content'][:300] + "..." if len(doc['content']) > 300 else doc['content'])
                     if i < len(rag_context):
                         st.divider()
         
@@ -780,7 +867,7 @@ def render_solution_section(canonical: CanonicalInput, show_rag: bool, show_debu
         
         # Verification
         verification = result.get('verification', '')
-        if verification:
+        if verification and verification != "N/A":
             st.subheader("✅ Verification")
             st.markdown(verification)
         
@@ -815,10 +902,10 @@ def render_feedback_section():
     
     if st.session_state.get('show_feedback_form'):
         with st.form("feedback_form"):
-            comment = st.text_area("What was wrong?")
-            correct_answer = st.text_area("Correct answer (optional):")
+            comment = st.text_area("What was wrong?", placeholder="Describe the issue...")
+            correct_answer = st.text_area("Correct answer (optional):", placeholder="Provide the correct solution...")
             
-            if st.form_submit_button("Submit Feedback"):
+            if st.form_submit_button("Submit Feedback", type="primary"):
                 if 'problem_id' in st.session_state:
                     memory = load_memory()
                     memory.record_feedback(
@@ -827,8 +914,9 @@ def render_feedback_section():
                         comment=comment,
                         corrected_solution=correct_answer
                     )
-                    st.success("Feedback recorded! 📝")
+                    st.success("Feedback recorded! We'll use this to improve. 📝")
                     st.session_state['show_feedback_form'] = False
+                    st.rerun()
 
 
 def render_history_tab():
@@ -839,23 +927,29 @@ def render_history_tab():
     history = memory.get_problem_history(limit=10)
     
     if not history:
-        st.info("No problems solved yet!")
+        st.info("No problems solved yet! Start by entering a math problem.")
         return
     
     for i, problem in enumerate(history, 1):
-        input_icon = {"text": "📝", "image": "📷", "audio": "🎤"}.get(problem['input_type'], "❓")
+        input_icon = {"text": "📝", "image": "📷", "audio": "🎤"}.get(problem.get('input_type', ''), "❓")
+        extracted_text = problem.get('extracted_text', 'Unknown problem')
         
-        with st.expander(f"{input_icon} {i}. {problem['extracted_text'][:50]}..."):
+        with st.expander(f"{input_icon} {i}. {extracted_text[:50]}..."):
             col1, col2 = st.columns(2)
             with col1:
-                st.markdown(f"**Input Type:** {problem['input_type']}")
+                st.markdown(f"**Input Type:** {problem.get('input_type', 'Unknown')}")
                 st.markdown(f"**Topic:** {problem.get('topic', 'Unknown')}")
             with col2:
-                st.markdown(f"**Confidence:** {problem.get('confidence_score', 0):.0%}")
-                st.caption(f"Solved: {problem['created_at']}")
+                confidence = problem.get('confidence_score', 0)
+                st.markdown(f"**Confidence:** {confidence:.0%}")
+                st.caption(f"Solved: {problem.get('created_at', 'Unknown')}")
             
+            st.markdown("**Problem:**")
+            st.markdown(extracted_text)
+            
+            solution = problem.get('solution', 'N/A')
             st.markdown("**Solution:**")
-            st.markdown(problem.get('solution', 'N/A')[:300] + "...")
+            st.markdown(solution[:500] + "..." if len(solution) > 500 else solution)
 
 
 # ============================================================
@@ -887,6 +981,10 @@ def main():
     
     with tab2:
         render_history_tab()
+    
+    # Footer
+    st.divider()
+    st.caption("🛡️ All inputs and outputs are validated by guardrails for safety and relevance.")
 
 
 # ============================================================
