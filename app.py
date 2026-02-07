@@ -696,6 +696,7 @@ def render_input_section(input_mode: str):
                     topic = report.metadata.get('category', 'general')
                     render_topic_badge(topic)
                 
+                
                 render_confidence_indicator(canonical.confidence_score)
                 
                 if canonical.original_extraction:

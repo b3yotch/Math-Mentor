@@ -12,6 +12,22 @@ from pathlib import Path
 from typing import List
 import logging
 from dataclasses import asdict
+import os
+import warnings
+import logging
+
+warnings.filterwarnings("ignore")
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
+os.environ["TRANSFORMERS_VERBOSITY"] = "error"
+
+# Suppress noisy loggers
+for logger_name in [
+    "httpx", "httpcore", "faiss", "faiss.loader",
+    "transformers", "sentence_transformers", 
+    "huggingface_hub", "urllib3", "filelock"
+]:
+    logging.getLogger(logger_name).setLevel(logging.ERROR)
 
 # Add parent to path for imports
 import sys

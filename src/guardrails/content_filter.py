@@ -8,6 +8,8 @@ import re
 from typing import Dict, List, Tuple, Set
 from dataclasses import dataclass
 from enum import Enum
+from .math_classifier import get_math_classifier, ClassificationResult
+
 
 
 class SafetyLevel(Enum):
@@ -47,6 +49,8 @@ class ContentFilter:
         """
         self.strict_mode = strict_mode
         self.check_history = []
+        self._classifier = None
+        
         self._compile_patterns()
     
     def _compile_patterns(self):
@@ -240,11 +244,17 @@ class ContentFilter:
             for p, category in self.clearly_off_topic
         ]
     
+    @property
+    def classifier(self):
+        """Lazy load classifier."""
+        if self._classifier is None:
+            self._classifier = get_math_classifier()
+            self._classifier.initialize()
+        return self._classifier
+    
     def check_input(self, text: str) -> SafetyCheck:
-        """
-        Run comprehensive safety check on input.
-        Returns SafetyCheck result.
-        """
+        """Run comprehensive safety check on input."""
+        
         if not text or len(text.strip()) == 0:
             return SafetyCheck(
                 level=SafetyLevel.BLOCKED,
@@ -282,29 +292,48 @@ class ContentFilter:
                 message="Please use appropriate language."
             )
         
-        # Check 4: PII detection (warning only)
+        # Check 4: PII (warning only)
         pii = self._detect_pii(text)
         if pii:
             return SafetyCheck(
                 level=SafetyLevel.WARNING,
                 category="pii",
-                message=f"Personal information detected ({pii}). Consider removing it.",
+                message=f"Personal information detected ({pii}).",
                 details=pii
             )
         
-        # Check 5: Math relevance (THE IMPROVED CHECK)
-        math_score = self._calculate_math_score(text)
-        is_clearly_off_topic, off_topic_category = self._is_clearly_off_topic(text)
+        # ============================================
+        # Check 5: MATH CLASSIFICATION (NEW!)
+        # Uses embedding-based classifier instead of keywords
+        # ============================================
+        classification = self.classifier.classify(text)
         
-        # Decision logic
-        if is_clearly_off_topic and math_score < 0.2:
-            return SafetyCheck(
-                level=SafetyLevel.BLOCKED,
-                category="off_topic",
-                message=f"This doesn't appear to be a math question ({off_topic_category}).",
-                details="Please ask about algebra, calculus, probability, statistics, or other math topics.",
-                confidence=1 - math_score
-            )
+        if not classification.is_math:
+            if classification.confidence < 0.3:
+                # Very confident it's NOT math
+                return SafetyCheck(
+                    level=SafetyLevel.BLOCKED,
+                    category="off_topic",
+                    message=f"This doesn't appear to be a math question.",
+                    details="Please ask about algebra, calculus, probability, statistics, or other math topics.",
+                    confidence=classification.confidence
+                )
+            else:
+                # Uncertain - allow with warning
+                return SafetyCheck(
+                    level=SafetyLevel.WARNING,
+                    category="low_confidence",
+                    message="This might not be a math question. Proceeding anyway.",
+                    confidence=classification.confidence
+                )
+        
+        # Passed all checks
+        return SafetyCheck(
+            level=SafetyLevel.SAFE,
+            category=classification.topic,
+            message="Input accepted",
+            confidence=classification.confidence
+        )
         
         # Low math score but not clearly off-topic = might be a word problem
         if math_score < 0.1 and not self._could_be_word_problem(text):
