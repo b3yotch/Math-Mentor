@@ -12,3 +12,4 @@ PyMuPDF
 pdfplumber
 tqdm
 regex
+rank-bm25

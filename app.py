@@ -12,7 +12,7 @@ import json
 import warnings
 import logging
 from datetime import datetime
-from typing import Tuple, Optional
+from typing import Dict, List, Tuple, Optional
 from dotenv import load_dotenv
 
 # ============================================================
@@ -36,6 +36,17 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+@st.cache_resource
+def initialize_shared_resources():
+    """Initialize all shared resources including embedding model."""
+    from src.core.embedding_manager import get_embedding_manager, preload_model
+    
+    # Preload the embedding model
+    em = get_embedding_manager()
+    _ = em.model  # Trigger loading
+    
+    return em
+shared_embedding_manager = initialize_shared_resources()
 
 # ============================================================
 # Imports from our modules
@@ -81,12 +92,13 @@ def load_normalizer():
 
 @st.cache_resource
 def load_retriever():
-    """Load RAG retriever (cached)."""
-    try:
-        return MathRAGRetriever()
-    except Exception as e:
-        st.warning(f"RAG not available: {e}")
-        return None
+    """Load RAG retriever with shared embedding model and reranker."""
+    from src.rag.retriever import MathRAGRetriever
+    return MathRAGRetriever(
+        embedding_manager=shared_embedding_manager,
+        use_reranker=True,
+        reranker_type="hybrid"  # Options: "hybrid", "cross_encoder", "cohere"
+    )
 
 
 @st.cache_resource
@@ -112,11 +124,16 @@ def load_groq_client():
 
 @st.cache_resource
 def load_guardrails():
-    """Load guardrails manager (cached)."""
-    return GuardrailsManager(
-        strict_mode=False,
-        enable_output_validation=True
-    )
+    """Load guardrails with shared embedding model."""
+    from src.guardrails.guardrails_manager import GuardrailsManager
+    
+    # Pass embedding manager to guardrails
+    manager = GuardrailsManager(strict_mode=False)
+    
+    # Initialize the classifier with shared model
+    manager.content_filter._embedding_manager = shared_embedding_manager
+    
+    return manager
 
 
 # ============================================================
@@ -238,14 +255,18 @@ def process_audio_input(audio_file) -> CanonicalInput:
     return result
 
 
-def get_rag_context(query: str, top_k: int = 3):
-    """Get relevant context from RAG."""
+def get_rag_context(query: str, top_k: int = 3, use_reranker: bool = True):
+    """Get relevant context from RAG with reranking."""
     retriever = load_retriever()
     if retriever is None:
         return []
     
     try:
-        results = retriever.retrieve(query, top_k=top_k)
+        results = retriever.retrieve(
+            query, 
+            top_k=top_k,
+            rerank=use_reranker  # Pass reranking option
+        )
         # Format results for display
         formatted = []
         for r in results:
@@ -253,7 +274,12 @@ def get_rag_context(query: str, top_k: int = 3):
                 'title': r.get('type', 'Unknown').title(),
                 'topic': f"{r.get('topic', 'general')}/{r.get('subtopic', '')}",
                 'content': r.get('content', ''),
-                'score': r.get('score', 0)
+                'score': r.get('score', 0),
+                'semantic_score': r.get('semantic_score', 0),
+                'keyword_score': r.get('keyword_score', 0),
+                'rerank_score': r.get('rerank_score', 0),  # NEW
+                'chapter': r.get('chapter', ''),
+                'section': r.get('section', ''),
             })
         return formatted
     except Exception as e:
@@ -263,7 +289,39 @@ def get_rag_context(query: str, top_k: int = 3):
 
 def save_to_memory(canonical: CanonicalInput, rag_context, result, topic=None):
     """Save solved problem to memory."""
+    import numpy as np
+    
     memory = load_memory()
+    
+    def make_serializable(obj):
+        """Recursively convert numpy types to Python native types."""
+        if obj is None:
+            return None
+        elif isinstance(obj, dict):
+            return {k: make_serializable(v) for k, v in obj.items()}
+        elif isinstance(obj, (list, tuple)):
+            return [make_serializable(item) for item in obj]
+        elif isinstance(obj, (np.integer, np.int32, np.int64)):
+            return int(obj)
+        elif isinstance(obj, (np.floating, np.float32, np.float64)):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        elif isinstance(obj, np.bool_):
+            return bool(obj)
+        elif hasattr(obj, 'to_dict'):
+            return make_serializable(obj.to_dict())
+        elif isinstance(obj, (str, int, float, bool)):
+            return obj
+        else:
+            # Fallback: try to convert, otherwise stringify
+            try:
+                return float(obj) if '.' in str(obj) else int(obj)
+            except (ValueError, TypeError):
+                return str(obj)
+    
+    # Convert entire rag_context to serializable format
+    serializable_context = make_serializable(rag_context)
     
     problem_id = memory.save_solved_problem(
         input_type=canonical.input_type,
@@ -273,8 +331,8 @@ def save_to_memory(canonical: CanonicalInput, rag_context, result, topic=None):
         solution=result.get('solution', ''),
         explanation=result.get('explanation', ''),
         verification_result=result.get('verification'),
-        rag_context=rag_context,
-        confidence_score=canonical.confidence_score,
+        rag_context=serializable_context,
+        confidence_score=float(canonical.confidence_score),
         was_human_edited=canonical.was_human_edited
     )
     
@@ -418,6 +476,7 @@ def render_sidebar():
         show_rag = st.checkbox("Show RAG Context", value=True)
         show_debug = st.checkbox("Show Debug Info", value=False)
         top_k = st.slider("RAG Results", 1, 5, 3)
+        use_reranker = st.checkbox("Enable Reranking", value=True, help="Use cross-encoder to rerank results for better relevance")  # NEW
         
         st.divider()
         
@@ -434,6 +493,11 @@ def render_sidebar():
         retriever = load_retriever()
         if retriever:
             st.success("✅ RAG Knowledge Base")
+            # Show reranker status
+            if hasattr(retriever, 'reranker') and retriever.reranker:
+                st.success("✅ Reranker Active")
+            else:
+                st.warning("⚠️ Reranker Not Available")
         else:
             st.warning("⚠️ RAG Not Available")
         
@@ -466,7 +530,7 @@ def render_sidebar():
         except:
             st.caption("No data yet")
         
-        return input_mode, show_rag, show_debug, top_k
+        return input_mode, show_rag, show_debug, top_k, use_reranker  # ADDED use_reranker
 
 
 def render_guardrails_status():
@@ -743,8 +807,63 @@ def render_input_section(input_mode: str):
     return canonical
 
 
-def render_solution_section(canonical: CanonicalInput, show_rag: bool, show_debug: bool, top_k: int):
+def render_solution_section(canonical: CanonicalInput, show_rag: bool, show_debug: bool, top_k: int, use_reranker: bool = True):
     """Render solution with output guardrails."""
+    def render_rag_context(rag_results: List[Dict]):
+        """Render RAG context with improved display."""
+        
+        if not rag_results:
+            st.info("No relevant knowledge found in the database.")
+            return
+        
+        with st.expander(f"📚 Retrieved Knowledge ({len(rag_results)} sources)", expanded=False):
+            for i, doc in enumerate(rag_results, 1):
+                score = doc.get('score', 0)
+                rerank_score = doc.get('rerank_score', 0)  # NEW
+                
+                # Score badge
+                if score >= 0.6:
+                    score_badge = "🟢 High"
+                elif score >= 0.4:
+                    score_badge = "🟡 Medium"
+                else:
+                    score_badge = "🔴 Low"
+                
+                # Header with score
+                col1, col2 = st.columns([4, 1])
+                with col1:
+                    st.markdown(f"**[{i}] {doc.get('title', 'Content')}** ({doc.get('topic', '')})")
+                with col2:
+                    st.caption(f"{score_badge} {score:.0%}")
+                
+                # Show rerank score if available  # NEW BLOCK
+                if rerank_score > 0:
+                    st.caption(f"🎯 Rerank Score: {rerank_score:.0%}")
+                
+                # Chapter/section info
+                chapter = doc.get('chapter', '')
+                section = doc.get('section', '')
+                if chapter or section:
+                    st.caption(f"📖 {chapter}" + (f" > {section}" if section else ""))
+                
+                # Content in a container
+                content = doc.get('content', '')
+                
+                # Display content with expandable full view
+                if len(content) > 600:
+                    # Show preview
+                    preview = content[:500].rsplit(' ', 1)[0] + "..."
+                    st.markdown(preview)
+                    
+                    # Full content in nested expander
+                    with st.expander("📄 Show full content"):
+                        st.markdown(content)
+                else:
+                    st.markdown(content)
+                
+                if i < len(rag_results):
+                    st.divider()
+
     guardrails = load_guardrails()
     
     if st.button("🚀 Solve Problem", type="primary", use_container_width=True):
@@ -753,11 +872,26 @@ def render_solution_section(canonical: CanonicalInput, show_rag: bool, show_debu
         progress = st.progress(0, text="Starting...")
         status = st.empty()
         
-        # Step 1: RAG
-        status.info("📚 Searching knowledge base...")
+        # Step 1: RAG (with reranking)  # UPDATED
+        rerank_text = " with reranking" if use_reranker else ""
+        status.info(f"📚 Searching knowledge base{rerank_text}...")
         progress.progress(20)
-        rag_context = get_rag_context(canonical.extracted_text, top_k=top_k)
-        st.session_state['rag_context'] = rag_context
+        
+        retriever = load_retriever()
+        
+        # Get expanded query info for debugging
+        from src.rag.query_expander import get_query_expander
+        expander = get_query_expander()
+        expanded_query = expander.expand(canonical.extracted_text)
+        
+        rag_results = retriever.retrieve(
+            canonical.extracted_text,
+            top_k=top_k,
+            min_score=0.2,
+            rerank=use_reranker  # PASS RERANKER FLAG
+        )
+        
+        st.session_state['rag_context'] = rag_results
         
         # Step 2: Memory
         status.info("🧠 Checking memory for similar problems...")
@@ -768,7 +902,7 @@ def render_solution_section(canonical: CanonicalInput, show_rag: bool, show_debu
         # Step 3: Solve
         status.info("🤖 Solving with AI...")
         progress.progress(50)
-        result = solve_with_llm(canonical.extracted_text, rag_context, similar)
+        result = solve_with_llm(canonical.extracted_text, rag_results, similar)
         
         # 🛡️ OUTPUT GUARDRAILS
         status.info("🛡️ Validating response...")
@@ -802,8 +936,8 @@ def render_solution_section(canonical: CanonicalInput, show_rag: bool, show_debu
         status.info("💾 Saving to memory...")
         progress.progress(85)
         
-        topic = rag_context[0].get('topic') if rag_context else None
-        problem_id = save_to_memory(canonical, rag_context, result, topic)
+        topic = rag_results[0].get('topic') if rag_results else None
+        problem_id = save_to_memory(canonical, rag_results, result, topic)
         st.session_state['problem_id'] = problem_id
         st.session_state['result'] = result
         
@@ -813,8 +947,8 @@ def render_solution_section(canonical: CanonicalInput, show_rag: bool, show_debu
         # Display Results
         st.divider()
         
-        # Status badges
-        col1, col2, col3 = st.columns(3)
+        # Status badges  # UPDATED
+        col1, col2, col3, col4 = st.columns(4)
         with col1:
             input_badges = {
                 "text": "📝 Text",
@@ -823,24 +957,34 @@ def render_solution_section(canonical: CanonicalInput, show_rag: bool, show_debu
             }
             st.caption(f"Input: {input_badges.get(canonical.input_type, 'Unknown')}")
         with col2:
-            st.caption(f"RAG Docs: {len(rag_context)}")
+            st.caption(f"RAG Docs: {len(rag_results)}")
         with col3:
+            rerank_status = "🎯 On" if use_reranker else "Off"
+            st.caption(f"Rerank: {rerank_status}")
+        with col4:
             status_color = "green" if output_report.status == CheckStatus.PASSED else "orange"
             st.caption(f"Validation: :{status_color}[{output_report.status.value}]")
         
-        # Debug info
+        # Debug info  # UPDATED
         if show_debug:
             with st.expander("🐛 Debug Info"):
                 st.json({
                     "input_type": canonical.input_type,
                     "confidence": canonical.confidence_score,
                     "was_edited": canonical.was_human_edited,
-                    "rag_docs": len(rag_context),
+                    "rag_docs": len(rag_results),
+                    "reranker_enabled": use_reranker,  # NEW
                     "similar_problems": len(similar),
                     "guardrails_status": output_report.status.value,
                     "guardrails_warnings": output_report.warnings,
                     "metadata": output_report.metadata
                 })
+                # Show rerank scores in debug  # NEW
+                if rag_results:
+                    st.markdown("**RAG Scores:**")
+                    for i, r in enumerate(rag_results[:5]):
+                        st.caption(f"{i+1}. {r.get('title', 'Unknown')}: combined={r.get('score', 0):.3f}, rerank={r.get('rerank_score', 0):.3f}")
+                
                 if result.get('raw_response'):
                     st.text_area("Raw Response", result.get('raw_response', '')[:2000], height=200)
         
@@ -849,16 +993,8 @@ def render_solution_section(canonical: CanonicalInput, show_rag: bool, show_debu
             st.error(f"⚠️ {result['error']}")
         
         # RAG Context
-        if show_rag and rag_context:
-            with st.expander(f"📚 Retrieved Knowledge ({len(rag_context)} docs)", expanded=False):
-                for i, doc in enumerate(rag_context, 1):
-                    score = doc.get('score', 0)
-                    score_color = "green" if score > 0.7 else "orange" if score > 0.5 else "red"
-                    
-                    st.markdown(f"**[{i}] {doc['title']}** ({doc['topic']}) - :{score_color}[{score:.2f}]")
-                    st.caption(doc['content'][:300] + "..." if len(doc['content']) > 300 else doc['content'])
-                    if i < len(rag_context):
-                        st.divider()
+        if show_rag:
+            render_rag_context(rag_results)
         
         # Solution
         st.subheader("📝 Solution")
@@ -963,8 +1099,8 @@ def main():
     if 'show_feedback_form' not in st.session_state:
         st.session_state['show_feedback_form'] = False
     
-    # Render sidebar and get settings
-    input_mode, show_rag, show_debug, top_k = render_sidebar()
+    # Render sidebar and get settings (UPDATED to include use_reranker)
+    input_mode, show_rag, show_debug, top_k, use_reranker = render_sidebar()
     
     # Main content
     st.title("🧮 Math Mentor")
@@ -978,7 +1114,7 @@ def main():
         
         if canonical and canonical.extracted_text:
             st.divider()
-            render_solution_section(canonical, show_rag, show_debug, top_k)
+            render_solution_section(canonical, show_rag, show_debug, top_k, use_reranker)  # PASS use_reranker
     
     with tab2:
         render_history_tab()
@@ -986,8 +1122,6 @@ def main():
     # Footer
     st.divider()
     st.caption("🛡️ All inputs and outputs are validated by guardrails for safety and relevance.")
-
-
 # ============================================================
 # Entry Point
 # ============================================================

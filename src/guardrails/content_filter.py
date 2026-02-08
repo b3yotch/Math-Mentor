@@ -8,8 +8,7 @@ import re
 from typing import Dict, List, Tuple, Set
 from dataclasses import dataclass
 from enum import Enum
-from .math_classifier import get_math_classifier, ClassificationResult
-
+from .math_classifier import get_math_classifier
 
 
 class SafetyLevel(Enum):
@@ -30,28 +29,13 @@ class SafetyCheck:
 
 
 class ContentFilter:
-    """
-    Comprehensive content safety filter - IMPROVED VERSION.
-    
-    Key improvements:
-    1. Better math word problem detection
-    2. Context-aware off-topic filtering
-    3. Reduced false positives
-    4. Confidence-based decisions
-    """
-    
-    def __init__(self, strict_mode: bool = False):
-        """
-        Initialize content filter.
-        
-        Args:
-            strict_mode: If True, be more aggressive with blocking
-        """
+    def __init__(self, strict_mode: bool = False, embedding_manager=None):
         self.strict_mode = strict_mode
-        self.check_history = []
+        self._embedding_manager = embedding_manager
         self._classifier = None
-        
         self._compile_patterns()
+    
+    
     
     def _compile_patterns(self):
         """Compile all regex patterns."""
@@ -246,9 +230,9 @@ class ContentFilter:
     
     @property
     def classifier(self):
-        """Lazy load classifier."""
+        """Get math classifier with shared embedding manager."""
         if self._classifier is None:
-            self._classifier = get_math_classifier()
+            self._classifier = get_math_classifier(self._embedding_manager)
             self._classifier.initialize()
         return self._classifier
     
@@ -328,6 +312,25 @@ class ContentFilter:
                 )
         
         # Passed all checks
+        classification = self.classifier.classify(text)
+        
+        if not classification.is_math:
+            if classification.confidence < 0.3:
+                return SafetyCheck(
+                    level=SafetyLevel.BLOCKED,
+                    category="off_topic",
+                    message="This doesn't appear to be a math question.",
+                    details="Please ask about algebra, calculus, probability, etc.",
+                    confidence=classification.confidence
+                )
+            else:
+                return SafetyCheck(
+                    level=SafetyLevel.WARNING,
+                    category="low_confidence",
+                    message="This might not be a math question. Proceeding anyway.",
+                    confidence=classification.confidence
+                )
+        
         return SafetyCheck(
             level=SafetyLevel.SAFE,
             category=classification.topic,
