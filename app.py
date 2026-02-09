@@ -1,7 +1,7 @@
 # app.py
 """
 Math Mentor - AI-Powered JEE Math Tutor
-Complete Version with Text, Image, and Audio Input + IMPROVED Guardrails
+Complete Version with Text, Image, and Audio Input + HITL + Guardrails
 """
 
 import streamlit as st
@@ -12,7 +12,7 @@ import json
 import warnings
 import logging
 from datetime import datetime
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional, Any
 from dotenv import load_dotenv
 
 # ============================================================
@@ -36,6 +36,8 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+
 @st.cache_resource
 def initialize_shared_resources():
     """Initialize all shared resources including embedding model."""
@@ -46,6 +48,8 @@ def initialize_shared_resources():
     _ = em.model  # Trigger loading
     
     return em
+
+
 shared_embedding_manager = initialize_shared_resources()
 
 # ============================================================
@@ -62,6 +66,16 @@ from src.guardrails.guardrails_manager import (
     GuardrailsManager, 
     GuardrailsReport,
     CheckStatus
+)
+
+# Import HITL
+from src.hitl.hitl_manager import (
+    HITLManager,
+    HITLTrigger,
+    HITLStatus,
+    HITLRequest,
+    HITLStage,
+    get_hitl_manager,
 )
 
 
@@ -97,7 +111,7 @@ def load_retriever():
     return MathRAGRetriever(
         embedding_manager=shared_embedding_manager,
         use_reranker=True,
-        reranker_type="hybrid"  # Options: "hybrid", "cross_encoder", "cohere"
+        reranker_type="hybrid"
     )
 
 
@@ -134,6 +148,13 @@ def load_guardrails():
     manager.content_filter._embedding_manager = shared_embedding_manager
     
     return manager
+
+
+@st.cache_resource
+def load_hitl_manager():
+    """Load HITL manager with memory integration."""
+    memory = load_memory()
+    return get_hitl_manager(memory_manager=memory)
 
 
 # ============================================================
@@ -265,7 +286,7 @@ def get_rag_context(query: str, top_k: int = 3, use_reranker: bool = True):
         results = retriever.retrieve(
             query, 
             top_k=top_k,
-            rerank=use_reranker  # Pass reranking option
+            rerank=use_reranker
         )
         # Format results for display
         formatted = []
@@ -277,7 +298,7 @@ def get_rag_context(query: str, top_k: int = 3, use_reranker: bool = True):
                 'score': r.get('score', 0),
                 'semantic_score': r.get('semantic_score', 0),
                 'keyword_score': r.get('keyword_score', 0),
-                'rerank_score': r.get('rerank_score', 0),  # NEW
+                'rerank_score': r.get('rerank_score', 0),
                 'chapter': r.get('chapter', ''),
                 'section': r.get('section', ''),
             })
@@ -314,7 +335,6 @@ def save_to_memory(canonical: CanonicalInput, rag_context, result, topic=None):
         elif isinstance(obj, (str, int, float, bool)):
             return obj
         else:
-            # Fallback: try to convert, otherwise stringify
             try:
                 return float(obj) if '.' in str(obj) else int(obj)
             except (ValueError, TypeError):
@@ -451,6 +471,312 @@ Provide a complete solution with all steps. Return valid JSON only."""
 
 
 # ============================================================
+# HITL Functions
+# ============================================================
+def render_extraction_hitl(
+    canonical: CanonicalInput,
+    hitl_request: Optional[HITLRequest],
+    input_type: str
+) -> Optional[CanonicalInput]:
+    """
+    Render HITL UI for extraction review - SIMPLIFIED VERSION.
+    
+    Args:
+        canonical: The canonical input to review
+        hitl_request: HITL request if triggered (can be None)
+        input_type: "image" or "audio"
+    
+    Returns:
+        Updated CanonicalInput if ready to proceed, None if waiting for action
+    """
+    hitl_manager = load_hitl_manager()
+    guardrails = load_guardrails()
+    
+    # Generate unique keys
+    key_suffix = f"{input_type}_{canonical.input_id[:8]}"
+    edit_key = f"edit_text_{key_suffix}"
+    
+    # Show confidence indicator
+    render_confidence_indicator(canonical.confidence_score)
+    
+    # Show HITL alert if triggered
+    if hitl_request:
+        display = hitl_manager.get_display_info(hitl_request)
+        st.warning(f"**{display['title']}**")
+        st.caption(display['reason'])
+        
+        with st.expander("💡 Review Suggestions", expanded=True):
+            for suggestion in display['suggestions'][:5]:
+                st.markdown(f"• {suggestion}")
+    
+    # Show original extraction if available
+    if canonical.original_extraction and canonical.original_extraction != canonical.extracted_text:
+        with st.expander("📄 Original Extraction"):
+            st.code(canonical.original_extraction[:500])
+    
+    # Get the current text to display
+    # Priority: session state edited text > canonical extracted text
+    stored_key = f"stored_text_{key_suffix}"
+    if stored_key in st.session_state:
+        display_text = st.session_state[stored_key]
+    else:
+        display_text = canonical.extracted_text
+        st.session_state[stored_key] = display_text
+    
+    # Always show editable text area
+    st.markdown("**Review and edit the extracted text:**")
+    edited_text = st.text_area(
+        "Extracted text:",
+        value=display_text,
+        height=120,
+        key=edit_key,
+        label_visibility="collapsed"
+    )
+    
+    # Update stored text when user types
+    st.session_state[stored_key] = edited_text
+    
+    # Check if text was modified
+    original_text = canonical.original_extraction or canonical.extracted_text
+    text_was_modified = edited_text != original_text
+    
+    # Show modification indicator
+    
+    
+    st.markdown("---")
+    
+    # Action buttons
+    if hitl_request:
+        # HITL mode - show all three buttons
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            approve_btn = st.button(
+                "✅ Use Original",
+                use_container_width=True,
+                key=f"approve_{key_suffix}",
+                help="Use the original extracted text without changes"
+            )
+        
+        with col2:
+            save_btn = st.button(
+                "💾 Save & Continue",
+                type="primary",
+                use_container_width=True,
+                key=f"save_{key_suffix}",
+                help="Save your edits and continue"
+            )
+        
+        with col3:
+            skip_btn = st.button(
+                "⏭️ Skip Review",
+                use_container_width=True,
+                key=f"skip_{key_suffix}",
+                help="Skip review and use original"
+            )
+    else:
+        # No HITL triggered - simpler UI
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            save_btn = st.button(
+                "✅ Continue" if not text_was_modified else "💾 Save & Continue",
+                type="primary",
+                use_container_width=True,
+                key=f"continue_{key_suffix}"
+            )
+        
+        with col2:
+            if text_was_modified:
+                revert_btn = st.button(
+                    "↩️ Revert Changes",
+                    use_container_width=True,
+                    key=f"revert_{key_suffix}"
+                )
+                if revert_btn:
+                    st.session_state[stored_key] = original_text
+                    st.rerun()
+        
+        approve_btn = False
+        skip_btn = False
+    
+    # Handle button actions
+    final_text = None
+    action_taken = None
+    
+    if hitl_request:
+        if approve_btn:
+            final_text = canonical.extracted_text  # Original
+            action_taken = "approved"
+            hitl_manager.approve_request(hitl_request.request_id)
+            
+        elif save_btn:
+            final_text = edited_text
+            action_taken = "edited" if text_was_modified else "approved"
+            if text_was_modified:
+                hitl_manager.edit_request(hitl_request.request_id, edited_text)
+            else:
+                hitl_manager.approve_request(hitl_request.request_id)
+            
+        elif skip_btn:
+            final_text = canonical.extracted_text  # Original
+            action_taken = "skipped"
+            hitl_manager.skip_request(hitl_request.request_id)
+    else:
+        if save_btn:
+            final_text = edited_text
+            action_taken = "edited" if text_was_modified else "approved"
+    
+    # Process the action
+    if final_text is not None:
+        # Validate the final text
+        report = guardrails.check_input(final_text)
+        if not report.passed:
+            display_guardrails_error(report)
+            return None
+        
+        # Update canonical with final text
+        if final_text != canonical.extracted_text:
+            # Text was changed - learn from correction
+            memory = load_memory()
+            memory.learn_extraction_correction(
+                input_type,
+                canonical.extracted_text,
+                final_text
+            )
+            
+            canonical.original_extraction = canonical.extracted_text
+            canonical.extracted_text = final_text
+            canonical.was_human_edited = True
+        
+        # Mark as reviewed
+        canonical.mark_reviewed(action_taken, final_text if action_taken == "edited" else None)
+        
+        # Clear stored text
+        if stored_key in st.session_state:
+            del st.session_state[stored_key]
+        
+        # Show success
+        if action_taken == "edited":
+            st.success("✏️ Changes saved! Learning signal stored.")
+        elif action_taken == "approved":
+            st.success("✅ Approved!")
+        elif action_taken == "skipped":
+            st.info("⏭️ Skipped review")
+        
+        # Show topic
+        topic = report.metadata.get('category', 'general')
+        render_topic_badge(topic)
+        display_guardrails_warnings(report)
+        
+        return canonical
+    
+    # No action taken yet
+    st.caption("👆 Click a button above to continue")
+    return None
+
+
+def render_recheck_button(solution: str, problem_text: str):
+    """Render a re-check request button for the solution."""
+    hitl_manager = load_hitl_manager()
+    
+    # Initialize session state for re-check
+    if 'recheck_active' not in st.session_state:
+        st.session_state.recheck_active = False
+        st.session_state.recheck_request_id = None
+    
+    col1, col2 = st.columns([3, 1])
+    
+    with col2:
+        if not st.session_state.recheck_active:
+            if st.button("🔄 Request Re-check", help="Request manual verification"):
+                request = hitl_manager.create_user_recheck_request(
+                    content=solution,
+                    stage="solution",
+                    reason="User requested verification"
+                )
+                st.session_state.recheck_active = True
+                st.session_state.recheck_request_id = request.request_id
+                st.rerun()
+    
+    # Show re-check UI if active
+    if st.session_state.recheck_active and st.session_state.recheck_request_id:
+        st.markdown("---")
+        st.info("🔄 **Re-check Mode Active**")
+        st.markdown("Please review the solution and provide your assessment:")
+        
+        feedback = st.text_area(
+            "Your feedback (optional):",
+            placeholder="Describe any issues or concerns...",
+            key="recheck_feedback_input"
+        )
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            if st.button("✅ Looks Correct", type="primary"):
+                hitl_manager.approve_request(
+                    st.session_state.recheck_request_id,
+                    feedback
+                )
+                st.session_state.recheck_active = False
+                st.session_state.recheck_request_id = None
+                st.success("✅ Marked as correct! Thanks for verifying.")
+                st.rerun()
+        
+        with col2:
+            if st.button("⚠️ Has Issues"):
+                hitl_manager.resolve_request(
+                    st.session_state.recheck_request_id,
+                    HITLStatus.REJECTED,
+                    human_feedback=feedback or "User reported issues"
+                )
+                st.session_state.recheck_active = False
+                st.session_state.recheck_request_id = None
+                st.warning("⚠️ Issue reported. Thanks for your feedback!")
+                st.rerun()
+        
+        with col3:
+            if st.button("❌ Cancel"):
+                hitl_manager.skip_request(st.session_state.recheck_request_id)
+                st.session_state.recheck_active = False
+                st.session_state.recheck_request_id = None
+                st.rerun()
+
+
+def render_hitl_status():
+    """Show HITL statistics in sidebar."""
+    hitl_manager = load_hitl_manager()
+    stats = hitl_manager.get_statistics()
+    
+    st.subheader("👤 HITL")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("Reviews", stats['total'])
+    with col2:
+        edit_rate = stats.get('edit_rate', 0)
+        st.metric("Edits", f"{edit_rate:.0%}")
+    
+    # Show current state
+    if st.session_state.get('hitl_done'):
+        final = st.session_state.get('final_canonical')
+        if final and final.was_human_edited:
+            st.success("✅ Current: Edited")
+        else:
+            st.success("✅ Current: Reviewed")
+    elif st.session_state.get('processed_canonical'):
+        st.info("⏳ Current: Awaiting review")
+    
+    with st.expander("Session Details", expanded=False):
+        if stats['by_action']:
+            st.caption("**By Action:**")
+            for action, count in stats['by_action'].items():
+                icon = {"approved": "✅", "edited": "✏️", "rejected": "❌", "skipped": "⏭️"}.get(action, "•")
+                st.caption(f"  {icon} {action}: {count}")
+        
+        st.caption(f"📚 Learning signals: {stats.get('learning_signals', 0)}")
+# ============================================================
 # UI Components
 # ============================================================
 def render_sidebar():
@@ -476,7 +802,7 @@ def render_sidebar():
         show_rag = st.checkbox("Show RAG Context", value=True)
         show_debug = st.checkbox("Show Debug Info", value=False)
         top_k = st.slider("RAG Results", 1, 5, 3)
-        use_reranker = st.checkbox("Enable Reranking", value=True, help="Use cross-encoder to rerank results for better relevance")  # NEW
+        use_reranker = st.checkbox("Enable Reranking", value=True, help="Use cross-encoder to rerank results")
         
         st.divider()
         
@@ -493,11 +819,8 @@ def render_sidebar():
         retriever = load_retriever()
         if retriever:
             st.success("✅ RAG Knowledge Base")
-            # Show reranker status
             if hasattr(retriever, 'reranker') and retriever.reranker:
                 st.success("✅ Reranker Active")
-            else:
-                st.warning("⚠️ Reranker Not Available")
         else:
             st.warning("⚠️ RAG Not Available")
         
@@ -516,6 +839,11 @@ def render_sidebar():
         
         st.divider()
         
+        # 👤 HITL STATUS
+        render_hitl_status()
+        
+        st.divider()
+        
         # Memory Stats
         st.subheader("🧠 Memory")
         try:
@@ -530,7 +858,7 @@ def render_sidebar():
         except:
             st.caption("No data yet")
         
-        return input_mode, show_rag, show_debug, top_k, use_reranker  # ADDED use_reranker
+        return input_mode, show_rag, show_debug, top_k, use_reranker
 
 
 def render_guardrails_status():
@@ -555,7 +883,7 @@ def render_guardrails_status():
 
 def render_topic_badge(topic: str):
     """Display topic badge if detected."""
-    if topic and topic.lower() not in ["general", "mathematics", "approved"]:
+    if topic and topic.lower() not in ["general", "mathematics", "approved", "low_confidence"]:
         st.success(f"📚 Detected Topic: **{topic.replace('_', ' ').title()}**")
 
 
@@ -574,13 +902,36 @@ def render_confidence_indicator(confidence: float):
     st.markdown(f"**Confidence:** :{color}[{confidence:.0%} ({label})]")
 
 
+def get_file_hash(file_obj) -> str:
+    """Get a hash of the uploaded file to detect changes."""
+    import hashlib
+    if file_obj is None:
+        return ""
+    content = file_obj.getvalue()
+    return hashlib.md5(content).hexdigest()
+
+
+def clear_hitl_state():
+    """Clear HITL-related session state."""
+    st.session_state['processed_canonical'] = None
+    st.session_state['processed_file_hash'] = None
+    st.session_state['hitl_completed'] = False
+    st.session_state['current_hitl_request_id'] = None
+
+
 def render_input_section(input_mode: str):
-    """Render input section with guardrails."""
+    """Render input section with HITL integration."""
     canonical = None
     guardrails = load_guardrails()
+    hitl_manager = load_hitl_manager()
     
     # ==================== TEXT INPUT ====================
     if input_mode == "📝 Text":
+        # Clear any file-based state
+        for key in list(st.session_state.keys()):
+            if key.startswith(('processed_', 'stored_text_', 'edit_text_', 'hitl_')):
+                del st.session_state[key]
+        
         st.subheader("📝 Enter Your Math Problem")
         
         examples = [
@@ -606,26 +957,21 @@ def render_input_section(input_mode: str):
         )
         
         if text_input:
-            # 🛡️ GUARDRAILS CHECK
             report = guardrails.check_input(text_input)
             
             if not report.passed:
                 display_guardrails_error(report)
                 return None
             
-            # Show warnings
             display_guardrails_warnings(report)
             
-            # Show detected topic
             topic = report.metadata.get('category', 'general')
             render_topic_badge(topic)
             
-            # Show math confidence
             confidence = report.metadata.get('math_confidence', 1.0)
             if confidence < 0.8:
                 st.caption(f"Math confidence: {confidence:.0%}")
             
-            # Process input
             canonical = process_text_input(text_input)
             
             with st.expander("🔍 Processed Input", expanded=False):
@@ -644,59 +990,102 @@ def render_input_section(input_mode: str):
         uploaded_file = st.file_uploader(
             "Upload image:",
             type=["jpg", "jpeg", "png"],
-            help="Upload a clear image of a math problem"
+            help="Upload a clear image of a math problem",
+            key="image_uploader"
         )
         
         if uploaded_file:
+            file_id = f"image_{uploaded_file.name}_{uploaded_file.size}"
+            
             col1, col2 = st.columns([1, 1])
             
             with col1:
                 st.image(uploaded_file, caption="Uploaded Image", use_container_width=True)
             
             with col2:
-                with st.spinner("🔍 Running OCR..."):
-                    canonical = process_image_input(uploaded_file)
-                
-                # 🛡️ GUARDRAILS CHECK on extracted text
-                if canonical.extracted_text:
-                    report = guardrails.check_input(canonical.extracted_text)
+                # Check if we need to process this file
+                if st.session_state.get('processed_file_id') != file_id:
+                    # New file - process it
+                    with st.spinner("🔍 Running OCR..."):
+                        canonical = process_image_input(uploaded_file)
                     
-                    if not report.passed:
+                    st.session_state['processed_file_id'] = file_id
+                    st.session_state['processed_canonical'] = canonical
+                    st.session_state['hitl_done'] = False
+                else:
+                    # Same file - use cached canonical
+                    canonical = st.session_state.get('processed_canonical')
+                    
+                    if canonical is None:
+                        with st.spinner("🔍 Running OCR..."):
+                            canonical = process_image_input(uploaded_file)
+                        st.session_state['processed_canonical'] = canonical
+                
+                # Check for errors
+                if canonical.metadata.get('error'):
+                    st.error(f"❌ OCR Error: {canonical.metadata['error']}")
+                    return None
+                
+                # Check if HITL already completed
+                if st.session_state.get('hitl_done') and st.session_state.get('final_canonical'):
+                    final_canonical = st.session_state['final_canonical']
+                    
+                    st.success("✅ Extraction reviewed and ready")
+                    render_confidence_indicator(final_canonical.confidence_score)
+                    
+                    if final_canonical.was_human_edited:
+                        st.info("✏️ Text was edited by user")
+                    
+                    st.text_area(
+                        "Final text:",
+                        value=final_canonical.extracted_text,
+                        height=100,
+                        disabled=True,
+                        key="final_display_image"
+                    )
+                    
+                    col_a, col_b = st.columns(2)
+                    with col_a:
+                        if st.button("🔄 Edit Again", key="reedit_image"):
+                            st.session_state['hitl_done'] = False
+                            # Clear stored text so we start fresh
+                            for k in list(st.session_state.keys()):
+                                if k.startswith('stored_text_image') or k.startswith('edit_text_image'):
+                                    del st.session_state[k]
+                            st.rerun()
+                    
+                    # Validate and return
+                    report = guardrails.check_input(final_canonical.extracted_text)
+                    if report.passed:
+                        topic = report.metadata.get('category', 'general')
+                        render_topic_badge(topic)
+                        return final_canonical
+                    else:
                         display_guardrails_error(report)
                         return None
-                    
-                    display_guardrails_warnings(report)
-                    
-                    topic = report.metadata.get('category', 'general')
-                    render_topic_badge(topic)
                 
-                # Confidence indicator
-                render_confidence_indicator(canonical.confidence_score)
-                
-                # Editable text
-                edited_text = st.text_area(
-                    "Edit extracted text if needed:",
-                    value=canonical.extracted_text,
-                    height=100,
-                    key="ocr_edit"
+                # HITL not done - show HITL UI
+                hitl_request = hitl_manager.check_extraction_hitl(
+                    input_type="image",
+                    extracted_text=canonical.extracted_text,
+                    confidence=canonical.confidence_score,
+                    metadata=canonical.metadata
                 )
                 
-                if edited_text != canonical.extracted_text:
-                    # Re-check guardrails on edited text
-                    edit_report = guardrails.check_input(edited_text)
-                    if not edit_report.passed:
-                        display_guardrails_error(edit_report)
-                        return None
-                    
-                    memory = load_memory()
-                    memory.learn_extraction_correction('image', canonical.extracted_text, edited_text)
-                    canonical.original_extraction = canonical.extracted_text
-                    canonical.extracted_text = edited_text
-                    canonical.was_human_edited = True
-                    st.success("✏️ Correction saved for learning!")
+                result = render_extraction_hitl(canonical, hitl_request, "image")
                 
-                if canonical.needs_hitl():
-                    st.warning("⚠️ Low confidence - please verify the text above")
+                if result is not None:
+                    st.session_state['hitl_done'] = True
+                    st.session_state['final_canonical'] = result
+                    st.session_state['processed_canonical'] = result
+                    return result
+                else:
+                    return None
+        else:
+            # Clear state when no file
+            for key in ['processed_file_id', 'processed_canonical', 'hitl_done', 'final_canonical']:
+                if key in st.session_state:
+                    del st.session_state[key]
     
     # ==================== AUDIO INPUT ====================
     elif input_mode == "🎤 Audio (ASR)":
@@ -706,30 +1095,33 @@ def render_input_section(input_mode: str):
         if asr is None:
             st.error("❌ Whisper ASR is not installed!")
             st.code("pip install openai-whisper")
-            st.info("After installing, restart the app.")
             return None
         
         audio_tab1, audio_tab2 = st.tabs(["📁 Upload Audio", "🎙️ Record Audio"])
         
         audio_source = None
+        audio_id = None
         
         with audio_tab1:
             uploaded_audio = st.file_uploader(
                 "Upload audio file:",
                 type=["wav", "mp3", "m4a", "ogg", "flac"],
-                help="Upload an audio file with your math question"
+                help="Upload an audio file with your math question",
+                key="audio_uploader"
             )
             if uploaded_audio:
                 st.audio(uploaded_audio, format="audio/wav")
                 audio_source = uploaded_audio
+                audio_id = f"audio_{uploaded_audio.name}_{uploaded_audio.size}"
         
         with audio_tab2:
             st.info("🎙️ Click below to record your question")
-            recorded_audio = st.audio_input("Record your math question:")
+            recorded_audio = st.audio_input("Record your math question:", key="audio_recorder")
             if recorded_audio:
                 audio_source = recorded_audio
+                audio_id = f"recorded_{len(recorded_audio.getvalue())}"
         
-        if audio_source:
+        if audio_source and audio_id:
             col1, col2 = st.columns([1, 1])
             
             with col1:
@@ -740,75 +1132,117 @@ def render_input_section(input_mode: str):
                     st.caption("Recorded audio")
             
             with col2:
-                with st.spinner("🎤 Transcribing audio..."):
-                    canonical = process_audio_input(audio_source)
+                # Check if we need to process this audio
+                if st.session_state.get('processed_file_id') != audio_id:
+                    # New audio - process it
+                    with st.spinner("🎤 Transcribing audio..."):
+                        canonical = process_audio_input(audio_source)
+                    
+                    st.session_state['processed_file_id'] = audio_id
+                    st.session_state['processed_canonical'] = canonical
+                    st.session_state['hitl_done'] = False
+                else:
+                    # Same audio - use cached canonical
+                    canonical = st.session_state.get('processed_canonical')
+                    
+                    if canonical is None:
+                        with st.spinner("🎤 Transcribing audio..."):
+                            canonical = process_audio_input(audio_source)
+                        st.session_state['processed_canonical'] = canonical
                 
+                # Check for errors
                 if canonical.metadata.get('error'):
-                    st.error(canonical.metadata['error'])
+                    st.error(f"❌ ASR Error: {canonical.metadata['error']}")
                     return None
                 
-                # 🛡️ GUARDRAILS CHECK on transcribed text
-                if canonical.extracted_text:
-                    report = guardrails.check_input(canonical.extracted_text)
+                # Check if HITL already completed
+                if st.session_state.get('hitl_done') and st.session_state.get('final_canonical'):
+                    final_canonical = st.session_state['final_canonical']
                     
-                    if not report.passed:
+                    st.success("✅ Transcription reviewed and ready")
+                    render_confidence_indicator(final_canonical.confidence_score)
+                    
+                    if final_canonical.was_human_edited:
+                        st.info("✏️ Text was edited by user")
+                    
+                    st.text_area(
+                        "Final text:",
+                        value=final_canonical.extracted_text,
+                        height=100,
+                        disabled=True,
+                        key="final_display_audio"
+                    )
+                    
+                    col_a, col_b = st.columns(2)
+                    with col_a:
+                        if st.button("🔄 Edit Again", key="reedit_audio"):
+                            st.session_state['hitl_done'] = False
+                            # Clear stored text
+                            for k in list(st.session_state.keys()):
+                                if k.startswith('stored_text_audio') or k.startswith('edit_text_audio'):
+                                    del st.session_state[k]
+                            st.rerun()
+                    
+                    # Show math conversion info
+                    with st.expander("🔢 Math Phrase Conversions"):
+                        st.markdown("""
+                        - "square root of" → √
+                        - "x squared" → x²
+                        - "raised to the power of" → ^
+                        - "integral of" → ∫
+                        - "derivative of" → d/dx
+                        """)
+                    
+                    # Validate and return
+                    report = guardrails.check_input(final_canonical.extracted_text)
+                    if report.passed:
+                        topic = report.metadata.get('category', 'general')
+                        render_topic_badge(topic)
+                        return final_canonical
+                    else:
                         display_guardrails_error(report)
                         return None
-                    
-                    display_guardrails_warnings(report)
-                    
-                    topic = report.metadata.get('category', 'general')
-                    render_topic_badge(topic)
                 
-                
-                render_confidence_indicator(canonical.confidence_score)
-                
-                if canonical.original_extraction:
-                    st.caption("Raw transcription:")
-                    st.text(canonical.original_extraction)
-                
-                edited_text = st.text_area(
-                    "Edit transcription if needed:",
-                    value=canonical.extracted_text,
-                    height=100,
-                    key="asr_edit"
+                # HITL not done - show HITL UI
+                hitl_request = hitl_manager.check_extraction_hitl(
+                    input_type="audio",
+                    extracted_text=canonical.extracted_text,
+                    confidence=canonical.confidence_score,
+                    metadata=canonical.metadata
                 )
                 
-                if edited_text != canonical.extracted_text:
-                    # Re-check guardrails on edited text
-                    edit_report = guardrails.check_input(edited_text)
-                    if not edit_report.passed:
-                        display_guardrails_error(edit_report)
-                        return None
+                result = render_extraction_hitl(canonical, hitl_request, "audio")
+                
+                if result is not None:
+                    st.session_state['hitl_done'] = True
+                    st.session_state['final_canonical'] = result
+                    st.session_state['processed_canonical'] = result
                     
-                    memory = load_memory()
-                    memory.learn_extraction_correction('audio', canonical.extracted_text, edited_text)
-                    canonical.original_extraction = canonical.extracted_text
-                    canonical.extracted_text = edited_text
-                    canonical.was_human_edited = True
-                    st.success("✏️ Correction saved for learning!")
-                
-                if canonical.needs_hitl():
-                    st.warning("⚠️ Low confidence - please verify the text above")
-                
-                with st.expander("🔢 Math Phrase Conversions Applied"):
-                    st.markdown("""
-                    The following spoken phrases are automatically converted:
-                    - "square root of" → √
-                    - "x squared" → x²
-                    - "raised to the power of" → ^
-                    - "integral of" → ∫
-                    - "derivative of" → d/dx
-                    - "theta", "pi", "alpha" → θ, π, α
-                    - "divided by" → /
-                    - "times" → ×
-                    """)
+                    # Show math conversion info
+                    with st.expander("🔢 Math Phrase Conversions Applied"):
+                        st.markdown("""
+                        - "square root of" → √
+                        - "x squared" → x²
+                        - "raised to the power of" → ^
+                        - "integral of" → ∫
+                        - "derivative of" → d/dx
+                        """)
+                    
+                    return result
+                else:
+                    return None
+        else:
+            # Clear state when no audio
+            for key in ['processed_file_id', 'processed_canonical', 'hitl_done', 'final_canonical']:
+                if key in st.session_state:
+                    del st.session_state[key]
     
     return canonical
 
 
 def render_solution_section(canonical: CanonicalInput, show_rag: bool, show_debug: bool, top_k: int, use_reranker: bool = True):
-    """Render solution with output guardrails."""
+    """Render solution with output guardrails and HITL."""
+    
     def render_rag_context(rag_results: List[Dict]):
         """Render RAG context with improved display."""
         
@@ -819,7 +1253,7 @@ def render_solution_section(canonical: CanonicalInput, show_rag: bool, show_debu
         with st.expander(f"📚 Retrieved Knowledge ({len(rag_results)} sources)", expanded=False):
             for i, doc in enumerate(rag_results, 1):
                 score = doc.get('score', 0)
-                rerank_score = doc.get('rerank_score', 0)  # NEW
+                rerank_score = doc.get('rerank_score', 0)
                 
                 # Score badge
                 if score >= 0.6:
@@ -836,7 +1270,7 @@ def render_solution_section(canonical: CanonicalInput, show_rag: bool, show_debu
                 with col2:
                     st.caption(f"{score_badge} {score:.0%}")
                 
-                # Show rerank score if available  # NEW BLOCK
+                # Show rerank score if available
                 if rerank_score > 0:
                     st.caption(f"🎯 Rerank Score: {rerank_score:.0%}")
                 
@@ -865,14 +1299,19 @@ def render_solution_section(canonical: CanonicalInput, show_rag: bool, show_debu
                     st.divider()
 
     guardrails = load_guardrails()
+    hitl_manager = load_hitl_manager()
     
     if st.button("🚀 Solve Problem", type="primary", use_container_width=True):
         st.session_state['current_canonical'] = canonical
         
+        # Reset re-check state
+        st.session_state.recheck_active = False
+        st.session_state.recheck_request_id = None
+        
         progress = st.progress(0, text="Starting...")
         status = st.empty()
         
-        # Step 1: RAG (with reranking)  # UPDATED
+        # Step 1: RAG (with reranking)
         rerank_text = " with reranking" if use_reranker else ""
         status.info(f"📚 Searching knowledge base{rerank_text}...")
         progress.progress(20)
@@ -888,7 +1327,7 @@ def render_solution_section(canonical: CanonicalInput, show_rag: bool, show_debu
             canonical.extracted_text,
             top_k=top_k,
             min_score=0.2,
-            rerank=use_reranker  # PASS RERANKER FLAG
+            rerank=use_reranker
         )
         
         st.session_state['rag_context'] = rag_results
@@ -947,7 +1386,7 @@ def render_solution_section(canonical: CanonicalInput, show_rag: bool, show_debu
         # Display Results
         st.divider()
         
-        # Status badges  # UPDATED
+        # Status badges
         col1, col2, col3, col4 = st.columns(4)
         with col1:
             input_badges = {
@@ -965,21 +1404,28 @@ def render_solution_section(canonical: CanonicalInput, show_rag: bool, show_debu
             status_color = "green" if output_report.status == CheckStatus.PASSED else "orange"
             st.caption(f"Validation: :{status_color}[{output_report.status.value}]")
         
-        # Debug info  # UPDATED
+        # Show HITL info if applicable
+        if canonical.was_human_edited:
+            st.caption("✏️ Input was human-edited")
+        
+        # Debug info
         if show_debug:
             with st.expander("🐛 Debug Info"):
                 st.json({
                     "input_type": canonical.input_type,
-                    "confidence": canonical.confidence_score,
+                    "confidence": float(canonical.confidence_score),
                     "was_edited": canonical.was_human_edited,
+                    "hitl_reviewed": canonical.hitl_info.was_reviewed,
+                    "hitl_action": canonical.hitl_info.review_action,
                     "rag_docs": len(rag_results),
-                    "reranker_enabled": use_reranker,  # NEW
+                    "reranker_enabled": use_reranker,
                     "similar_problems": len(similar),
                     "guardrails_status": output_report.status.value,
                     "guardrails_warnings": output_report.warnings,
                     "metadata": output_report.metadata
                 })
-                # Show rerank scores in debug  # NEW
+                
+                # Show RAG scores
                 if rag_results:
                     st.markdown("**RAG Scores:**")
                     for i, r in enumerate(rag_results[:5]):
@@ -1001,6 +1447,9 @@ def render_solution_section(canonical: CanonicalInput, show_rag: bool, show_debu
         solution = result.get('solution', 'No solution generated')
         if solution:
             st.markdown(solution)
+        
+        # 🔄 Re-check button
+        render_recheck_button(solution, canonical.extracted_text)
         
         # Verification
         verification = result.get('verification', '')
@@ -1098,13 +1547,27 @@ def main():
     # Initialize session state
     if 'show_feedback_form' not in st.session_state:
         st.session_state['show_feedback_form'] = False
+    if 'recheck_active' not in st.session_state:
+        st.session_state['recheck_active'] = False
+    if 'recheck_request_id' not in st.session_state:
+        st.session_state['recheck_request_id'] = None
     
-    # Render sidebar and get settings (UPDATED to include use_reranker)
+    # HITL state management
+    if 'processed_canonical' not in st.session_state:
+        st.session_state['processed_canonical'] = None
+    if 'processed_file_hash' not in st.session_state:
+        st.session_state['processed_file_hash'] = None
+    if 'hitl_completed' not in st.session_state:
+        st.session_state['hitl_completed'] = False
+    if 'current_hitl_request_id' not in st.session_state:
+        st.session_state['current_hitl_request_id'] = None
+    
+    # Render sidebar and get settings
     input_mode, show_rag, show_debug, top_k, use_reranker = render_sidebar()
     
     # Main content
     st.title("🧮 Math Mentor")
-    st.markdown("*Your AI-powered JEE Math Tutor with Safety Guardrails*")
+    st.markdown("*Your AI-powered JEE Math Tutor with HITL & Safety Guardrails*")
     
     # Tabs
     tab1, tab2 = st.tabs(["🆕 Solve Problem", "📜 History"])
@@ -1114,14 +1577,14 @@ def main():
         
         if canonical and canonical.extracted_text:
             st.divider()
-            render_solution_section(canonical, show_rag, show_debug, top_k, use_reranker)  # PASS use_reranker
+            render_solution_section(canonical, show_rag, show_debug, top_k, use_reranker)
     
     with tab2:
         render_history_tab()
     
     # Footer
     st.divider()
-    st.caption("🛡️ All inputs and outputs are validated by guardrails for safety and relevance.")
+    st.caption("🛡️ All inputs/outputs validated by guardrails | 👤 HITL for low-confidence extractions | 🧠 Learning from corrections")
 # ============================================================
 # Entry Point
 # ============================================================
