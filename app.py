@@ -675,7 +675,130 @@ def render_extraction_hitl(
     st.caption("👆 Click a button above to continue")
     return None
 
-
+def render_evaluation_tab():
+    """Render the evaluation tab in the UI."""
+    st.subheader("📊 System Evaluation")
+    st.markdown("Run comprehensive tests to evaluate system performance.")
+    
+    from src.evaluation.eval_manager import get_eval_manager
+    from src.evaluation.test_datasets import get_test_dataset
+    
+    dataset = get_test_dataset()
+    summary = dataset.get_summary()
+    
+    # Dataset info
+    with st.expander("📋 Test Dataset", expanded=False):
+        st.markdown(f"**Total test cases:** {summary['total']}")
+        for topic, count in summary['by_topic'].items():
+            st.markdown(f"- {topic.title()}: {count} cases")
+    
+    # Evaluation options
+    st.markdown("### Configuration")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        eval_rag = st.checkbox("Evaluate RAG", value=True)
+        eval_solution = st.checkbox("Evaluate Solutions", value=True)
+    with col2:
+        eval_guardrails = st.checkbox("Evaluate Guardrails", value=True)
+        eval_memory = st.checkbox("Evaluate Memory", value=True)
+    
+    topic_options = ["All Topics"] + list(summary['by_topic'].keys())
+    selected_topic = st.selectbox("Topic Filter:", topic_options)
+    topic_filter = None if selected_topic == "All Topics" else selected_topic
+    
+    max_cases = st.slider("Max Test Cases", 5, summary['total'], min(20, summary['total']))
+    
+    # Run evaluation
+    if st.button("🚀 Run Evaluation", type="primary", use_container_width=True):
+        eval_manager = get_eval_manager()
+        
+        progress = st.progress(0)
+        status = st.empty()
+        
+        def progress_callback(pct, msg):
+            progress.progress(pct, text=msg)
+            status.info(msg)
+        
+        with st.spinner("Running evaluation..."):
+            report = eval_manager.run_full_evaluation(
+                include_rag=eval_rag,
+                include_solution=eval_solution,
+                include_guardrails=eval_guardrails,
+                include_memory=eval_memory,
+                topic_filter=topic_filter,
+                max_cases=max_cases,
+                progress_callback=progress_callback
+            )
+        
+        progress.empty()
+        status.empty()
+        
+        # Display results
+        st.markdown("---")
+        
+        # Overall score
+        score = report.overall_score
+        grade = report.overall_grade
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            color = "green" if score >= 70 else "orange" if score >= 50 else "red"
+            st.markdown(f"### Overall: :{color}[{score:.1f}%]")
+        with col2:
+            st.markdown(f"### Grade: **{grade}**")
+        with col3:
+            st.markdown(f"### Components: **{len(report.component_reports)}**")
+        
+        st.markdown("---")
+        
+        # Component results
+        for name, comp_report in report.component_reports.items():
+            with st.expander(f"📊 {name} ({comp_report.overall_score:.1f}%)", expanded=True):
+                
+                if comp_report.metrics:
+                    cols = st.columns(len(comp_report.metrics[:4]))
+                    for i, metric in enumerate(comp_report.metrics[:4]):
+                        with cols[i]:
+                            color = "green" if metric.percentage >= 70 else "orange" if metric.percentage >= 50 else "red"
+                            st.metric(
+                                metric.name,
+                                f"{metric.percentage:.1f}%",
+                                help=metric.details
+                            )
+                    
+                    # Show remaining metrics
+                    if len(comp_report.metrics) > 4:
+                        for metric in comp_report.metrics[4:]:
+                            st.caption(f"**{metric.name}:** {metric.percentage:.1f}% - {metric.details}")
+                
+                if comp_report.errors:
+                    st.warning(f"⚠️ {len(comp_report.errors)} errors during evaluation")
+                    with st.expander("Show errors"):
+                        for err in comp_report.errors[:10]:
+                            st.caption(f"❌ {err}")
+                
+                if comp_report.details:
+                    with st.expander("Detailed Results"):
+                        st.json(comp_report.details[:10])
+        
+        # Download report
+        st.markdown("---")
+        report_md = report.to_markdown()
+        st.download_button(
+            "📥 Download Report (Markdown)",
+            report_md,
+            file_name=f"eval_report_{datetime.now().strftime('%Y%m%d_%H%M')}.md",
+            mime="text/markdown"
+        )
+        
+        report_json = json.dumps(report.to_dict(), indent=2)
+        st.download_button(
+            "📥 Download Report (JSON)",
+            report_json,
+            file_name=f"eval_report_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
+            mime="application/json"
+        )
 def render_recheck_button(solution: str, problem_text: str):
     """Render a re-check request button for the solution."""
     hitl_manager = load_hitl_manager()
@@ -1569,8 +1692,8 @@ def main():
     st.title("🧮 Math Mentor")
     st.markdown("*Your AI-powered JEE Math Tutor with HITL & Safety Guardrails*")
     
-    # Tabs
-    tab1, tab2 = st.tabs(["🆕 Solve Problem", "📜 History"])
+    # Tabs - ADD EVALUATION TAB
+    tab1, tab2, tab3 = st.tabs(["🆕 Solve Problem", "📜 History", "📊 Evaluation"])
     
     with tab1:
         canonical = render_input_section(input_mode)
@@ -1582,10 +1705,12 @@ def main():
     with tab2:
         render_history_tab()
     
+    with tab3:
+        render_evaluation_tab()
+    
     # Footer
     st.divider()
     st.caption("🛡️ All inputs/outputs validated by guardrails | 👤 HITL for low-confidence extractions | 🧠 Learning from corrections")
-# ============================================================
 # Entry Point
 # ============================================================
 if __name__ == "__main__":
