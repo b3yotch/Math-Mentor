@@ -5,6 +5,7 @@ Complete Version with Text, Image, and Audio Input + HITL + Guardrails
 """
 
 import streamlit as st
+import time
 import os
 import sys
 import tempfile
@@ -77,6 +78,8 @@ from src.hitl.hitl_manager import (
     HITLStage,
     get_hitl_manager,
 )
+
+
 
 
 # ============================================================
@@ -1363,12 +1366,17 @@ def render_input_section(input_mode: str):
     return canonical
 
 
-def render_solution_section(canonical: CanonicalInput, show_rag: bool, show_debug: bool, top_k: int, use_reranker: bool = True):
-    """Render solution with output guardrails and HITL."""
+def render_solution_section(
+    canonical: CanonicalInput,
+    show_rag: bool,
+    show_debug: bool,
+    top_k: int,
+    use_reranker: bool = True
+):
+    """Render solution with output guardrails, HITL, and per-query evaluation."""
     
     def render_rag_context(rag_results: List[Dict]):
         """Render RAG context with improved display."""
-        
         if not rag_results:
             st.info("No relevant knowledge found in the database.")
             return
@@ -1403,16 +1411,11 @@ def render_solution_section(canonical: CanonicalInput, show_rag: bool, show_debu
                 if chapter or section:
                     st.caption(f"📖 {chapter}" + (f" > {section}" if section else ""))
                 
-                # Content in a container
+                # Content
                 content = doc.get('content', '')
-                
-                # Display content with expandable full view
                 if len(content) > 600:
-                    # Show preview
                     preview = content[:500].rsplit(' ', 1)[0] + "..."
                     st.markdown(preview)
-                    
-                    # Full content in nested expander
                     with st.expander("📄 Show full content"):
                         st.markdown(content)
                 else:
@@ -1420,7 +1423,7 @@ def render_solution_section(canonical: CanonicalInput, show_rag: bool, show_debu
                 
                 if i < len(rag_results):
                     st.divider()
-
+    
     guardrails = load_guardrails()
     hitl_manager = load_hitl_manager()
     
@@ -1434,10 +1437,14 @@ def render_solution_section(canonical: CanonicalInput, show_rag: bool, show_debu
         progress = st.progress(0, text="Starting...")
         status = st.empty()
         
-        # Step 1: RAG (with reranking)
+        # Track total time for evaluation
+        import time
+        solve_start_time = time.time()
+        
+        # ==================== Step 1: RAG Retrieval ====================
         rerank_text = " with reranking" if use_reranker else ""
         status.info(f"📚 Searching knowledge base{rerank_text}...")
-        progress.progress(20)
+        progress.progress(15)
         
         retriever = load_retriever()
         
@@ -1455,20 +1462,20 @@ def render_solution_section(canonical: CanonicalInput, show_rag: bool, show_debu
         
         st.session_state['rag_context'] = rag_results
         
-        # Step 2: Memory
+        # ==================== Step 2: Memory Lookup ====================
         status.info("🧠 Checking memory for similar problems...")
-        progress.progress(35)
+        progress.progress(30)
         memory = load_memory()
         similar = memory.find_similar_problems(canonical.extracted_text, limit=2)
         
-        # Step 3: Solve
+        # ==================== Step 3: LLM Solve ====================
         status.info("🤖 Solving with AI...")
-        progress.progress(50)
+        progress.progress(45)
         result = solve_with_llm(canonical.extracted_text, rag_results, similar)
         
-        # 🛡️ OUTPUT GUARDRAILS
+        # ==================== Step 4: Output Guardrails ====================
         status.info("🛡️ Validating response...")
-        progress.progress(70)
+        progress.progress(60)
         
         output_report = guardrails.check_output(result)
         
@@ -1494,23 +1501,54 @@ def render_solution_section(canonical: CanonicalInput, show_rag: bool, show_debu
         # Format output safely
         result = guardrails.format_output_for_display(result)
         
-        # Step 4: Save
+        # ==================== Step 5: Save to Memory ====================
         status.info("💾 Saving to memory...")
-        progress.progress(85)
+        progress.progress(75)
         
         topic = rag_results[0].get('topic') if rag_results else None
         problem_id = save_to_memory(canonical, rag_results, result, topic)
         st.session_state['problem_id'] = problem_id
         st.session_state['result'] = result
         
+        # ==================== Step 6: Per-Query Evaluation ====================
+        status.info("📊 Evaluating response quality...")
+        progress.progress(88)
+        
+        from src.evaluation.evaluator_agent import get_evaluator_agent
+        
+        eval_agent = get_evaluator_agent()
+        total_latency = (time.time() - solve_start_time) * 1000  # ms
+        
+        try:
+            query_eval = eval_agent.evaluate_query(
+                question=canonical.extracted_text,
+                solution=result.get('solution', ''),
+                explanation=result.get('explanation', ''),
+                verification=result.get('verification', ''),
+                rag_context=rag_results,
+                input_type=canonical.input_type,
+                confidence=float(canonical.confidence_score),
+                was_human_edited=canonical.was_human_edited,
+                latency_ms=total_latency,
+                topic=topic or "",
+                query_id=problem_id,
+            )
+            st.session_state['last_evaluation'] = query_eval
+        except Exception as e:
+            logging.error(f"Evaluation failed: {e}")
+            st.session_state['last_evaluation'] = None
+        
+        # ==================== Done ====================
         progress.progress(100, text="✅ Complete!")
         status.empty()
         
-        # Display Results
+        # ============================================================
+        # DISPLAY RESULTS
+        # ============================================================
         st.divider()
         
-        # Status badges
-        col1, col2, col3, col4 = st.columns(4)
+        # ---- Status Badges Row ----
+        col1, col2, col3, col4, col5 = st.columns(5)
         with col1:
             input_badges = {
                 "text": "📝 Text",
@@ -1526,15 +1564,23 @@ def render_solution_section(canonical: CanonicalInput, show_rag: bool, show_debu
         with col4:
             status_color = "green" if output_report.status == CheckStatus.PASSED else "orange"
             st.caption(f"Validation: :{status_color}[{output_report.status.value}]")
+        with col5:
+            # Show eval grade
+            query_eval = st.session_state.get('last_evaluation')
+            if query_eval:
+                eval_color = "green" if query_eval.overall_score >= 0.7 else "orange" if query_eval.overall_score >= 0.5 else "red"
+                st.caption(f"Quality: :{eval_color}[{query_eval.grade}]")
+            else:
+                st.caption("Quality: N/A")
         
-        # Show HITL info if applicable
+        # ---- HITL Info ----
         if canonical.was_human_edited:
             st.caption("✏️ Input was human-edited")
         
-        # Debug info
+        # ---- Debug Info ----
         if show_debug:
             with st.expander("🐛 Debug Info"):
-                st.json({
+                debug_data = {
                     "input_type": canonical.input_type,
                     "confidence": float(canonical.confidence_score),
                     "was_edited": canonical.was_human_edited,
@@ -1545,42 +1591,66 @@ def render_solution_section(canonical: CanonicalInput, show_rag: bool, show_debu
                     "similar_problems": len(similar),
                     "guardrails_status": output_report.status.value,
                     "guardrails_warnings": output_report.warnings,
-                    "metadata": output_report.metadata
-                })
+                    "metadata": output_report.metadata,
+                    "total_latency_ms": round(total_latency, 1),
+                }
+                
+                # Add evaluation data if available
+                query_eval = st.session_state.get('last_evaluation')
+                if query_eval:
+                    debug_data["evaluation"] = {
+                        "overall_score": round(query_eval.overall_score, 3),
+                        "grade": query_eval.grade,
+                        "rag_relevance": round(query_eval.rag_relevance_score, 3),
+                        "solution_quality": round(query_eval.solution_quality_score, 3),
+                        "explanation_clarity": round(query_eval.explanation_clarity_score, 3),
+                        "issues": query_eval.issues_found,
+                        "suggestions": query_eval.suggestions,
+                    }
+                
+                st.json(debug_data)
                 
                 # Show RAG scores
                 if rag_results:
                     st.markdown("**RAG Scores:**")
                     for i, r in enumerate(rag_results[:5]):
-                        st.caption(f"{i+1}. {r.get('title', 'Unknown')}: combined={r.get('score', 0):.3f}, rerank={r.get('rerank_score', 0):.3f}")
+                        st.caption(
+                            f"{i+1}. {r.get('title', 'Unknown')}: "
+                            f"combined={r.get('score', 0):.3f}, "
+                            f"rerank={r.get('rerank_score', 0):.3f}"
+                        )
                 
                 if result.get('raw_response'):
-                    st.text_area("Raw Response", result.get('raw_response', '')[:2000], height=200)
+                    st.text_area(
+                        "Raw Response",
+                        result.get('raw_response', '')[:2000],
+                        height=200
+                    )
         
-        # Error display
+        # ---- Error Display ----
         if result.get('error'):
             st.error(f"⚠️ {result['error']}")
         
-        # RAG Context
+        # ---- RAG Context ----
         if show_rag:
             render_rag_context(rag_results)
         
-        # Solution
+        # ---- Solution ----
         st.subheader("📝 Solution")
         solution = result.get('solution', 'No solution generated')
         if solution:
             st.markdown(solution)
         
-        # 🔄 Re-check button
+        # ---- Re-check Button ----
         render_recheck_button(solution, canonical.extracted_text)
         
-        # Verification
+        # ---- Verification ----
         verification = result.get('verification', '')
         if verification and verification != "N/A":
             st.subheader("✅ Verification")
             st.markdown(verification)
         
-        # Explanation
+        # ---- Explanation ----
         explanation = result.get('explanation', '')
         if explanation:
             st.subheader("📖 Explanation")
@@ -1588,8 +1658,56 @@ def render_solution_section(canonical: CanonicalInput, show_rag: bool, show_debu
         
         st.divider()
         
-        # Feedback
+        # ---- Per-Query Evaluation Card ----
+        query_eval = st.session_state.get('last_evaluation')
+        render_query_evaluation(query_eval)
+        
+        st.divider()
+        
+        # ---- Feedback Section ----
         render_feedback_section()
+
+def render_query_evaluation(evaluation):
+    """Display per-query evaluation results."""
+    from src.evaluation.evaluator_agent import QueryEvaluation
+    
+    if evaluation is None:
+        return
+    
+    with st.expander(
+        f"📊 Response Quality: {evaluation.grade} ({evaluation.overall_score:.0%})",
+        expanded=False
+    ):
+        # Score cards
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            color = "green" if evaluation.overall_score >= 0.7 else "orange" if evaluation.overall_score >= 0.5 else "red"
+            st.metric("Overall", f"{evaluation.overall_score:.0%}")
+        with col2:
+            st.metric("RAG Relevance", f"{evaluation.rag_relevance_score:.0%}")
+        with col3:
+            st.metric("Solution", f"{evaluation.solution_quality_score:.0%}")
+        with col4:
+            st.metric("Explanation", f"{evaluation.explanation_clarity_score:.0%}")
+        
+        # Assessments
+        if evaluation.solution_assessment:
+            st.markdown(f"**Solution:** {evaluation.solution_assessment}")
+        if evaluation.explanation_assessment:
+            st.markdown(f"**Explanation:** {evaluation.explanation_assessment}")
+        
+        # Issues
+        if evaluation.issues_found:
+            st.warning("**Issues Found:**")
+            for issue in evaluation.issues_found:
+                st.markdown(f"- ⚠️ {issue}")
+        
+        # Suggestions
+        if evaluation.suggestions:
+            st.info("**Suggestions:**")
+            for suggestion in evaluation.suggestions:
+                st.markdown(f"- 💡 {suggestion}")
 
 
 def render_feedback_section():
