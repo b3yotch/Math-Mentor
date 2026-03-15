@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Send, Sparkles, BookOpen, Lightbulb } from 'lucide-react';
+import { Send, Sparkles, FileText, Camera, Mic } from 'lucide-react';
 import api from '../api/client';
 import toast from 'react-hot-toast';
 import LoadingSpinner from './LoadingSpinner';
@@ -7,6 +7,8 @@ import SolutionDisplay from './SolutionDisplay';
 import RAGContext from './RAGContext';
 import EvaluationCard from './EvaluationCard';
 import FeedbackSection from './FeedbackSection';
+import ImageInput from './ImageInput';
+import AudioInput from './AudioInput';
 
 const EXAMPLES = [
   'Solve x^2 - 5x + 6 = 0',
@@ -14,69 +16,102 @@ const EXAMPLES = [
   'What is the probability of getting exactly 2 heads in 3 coin tosses?',
   'Find the determinant of matrix [[1,2],[3,4]]',
   'Integrate 3x^2 + 2x dx',
-  'Find the limit of (x^2 - 1)/(x - 1) as x approaches 1',
   'A train travels at 60 km/h for 2 hours. Find the distance.',
 ];
 
+const INPUT_MODES = [
+  { id: 'text', label: 'Text', icon: FileText },
+  { id: 'image', label: 'Image (OCR)', icon: Camera },
+  { id: 'audio', label: 'Audio (ASR)', icon: Mic },
+];
+
 export default function SolveTab({ settings }) {
+  const [inputMode, setInputMode] = useState('text');
   const [question, setQuestion] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadingStep, setLoadingStep] = useState('');
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
 
-  const handleSolve = async () => {
-    if (!question.trim()) {
-      toast.error('Please enter a math problem');
-      return;
-    }
-
+  const startLoading = () => {
     setLoading(true);
     setError(null);
     setResult(null);
 
-    const steps = [
-      'Checking guardrails...',
-      'Normalizing input...',
-      'Searching knowledge base...',
-      'Solving with AI...',
-      'Validating response...',
-      'Evaluating quality...',
-    ];
+    const steps = {
+      text: ['Checking guardrails...', 'Searching knowledge base...', 'Solving with AI...', 'Evaluating quality...'],
+      image: ['Running OCR...', 'Extracting text...', 'Searching knowledge base...', 'Solving with AI...'],
+      audio: ['Transcribing audio...', 'Processing text...', 'Searching knowledge base...', 'Solving with AI...'],
+    };
 
-    let stepIndex = 0;
-    const stepInterval = setInterval(() => {
-      if (stepIndex < steps.length) {
-        setLoadingStep(steps[stepIndex]);
-        stepIndex++;
+    let idx = 0;
+    const msgs = steps[inputMode] || steps.text;
+    const interval = setInterval(() => {
+      if (idx < msgs.length) {
+        setLoadingStep(msgs[idx]);
+        idx++;
       }
-    }, 2000);
+    }, 2500);
+
+    return interval;
+  };
+
+  const handleSolveText = async () => {
+    if (!question.trim()) {
+      toast.error('Please enter a math problem');
+      return;
+    }
+    const interval = startLoading();
 
     try {
       const data = await api.solve(question, settings.topK, settings.includeEval);
       setResult(data);
-
-      if (data.status === 'success') {
-        toast.success('Problem solved!');
-      } else if (data.status === 'blocked') {
-        toast.error('Input blocked by guardrails');
-      } else if (data.status === 'error') {
-        toast.error(data.error || 'An error occurred');
-      }
+      if (data.status === 'success') toast.success('Problem solved!');
+      else if (data.status === 'blocked') toast.error('Input blocked by guardrails');
     } catch (err) {
       setError(err.message);
       toast.error(err.message);
     } finally {
-      clearInterval(stepInterval);
+      clearInterval(interval);
+      setLoading(false);
+      setLoadingStep('');
+    }
+  };
+
+  const handleSolveImage = async (file) => {
+    const interval = startLoading();
+    try {
+      const data = await api.solveImage(file, settings.topK, settings.includeEval);
+      setResult(data);
+      if (data.status === 'success') toast.success('Image solved!');
+    } catch (err) {
+      setError(err.message);
+      toast.error(err.message);
+    } finally {
+      clearInterval(interval);
+      setLoading(false);
+      setLoadingStep('');
+    }
+  };
+
+  const handleSolveAudio = async (file) => {
+    const interval = startLoading();
+    try {
+      const data = await api.solveAudio(file, settings.topK, settings.includeEval);
+      setResult(data);
+      if (data.status === 'success') toast.success('Audio solved!');
+    } catch (err) {
+      setError(err.message);
+      toast.error(err.message);
+    } finally {
+      clearInterval(interval);
       setLoading(false);
       setLoadingStep('');
     }
   };
 
   const handleKeyDown = (e) => {
-    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-      handleSolve();
-    }
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) handleSolveText();
   };
 
   return (
@@ -87,48 +122,67 @@ export default function SolveTab({ settings }) {
           <Sparkles size={20} color="var(--accent-blue)" />
           <div>
             <div className="card-title">Solve a Math Problem</div>
-            <div className="card-subtitle">Enter any JEE-level math question</div>
+            <div className="card-subtitle">Text, image, or voice input</div>
           </div>
         </div>
 
-        {/* Examples */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 16 }}>
-          {EXAMPLES.map((ex, i) => (
+        {/* Input Mode Tabs */}
+        <div className="tabs" style={{ marginBottom: 20 }}>
+          {INPUT_MODES.map(({ id, label, icon: Icon }) => (
             <button
-              key={i}
-              className="btn btn-ghost"
-              style={{ fontSize: 12, padding: '4px 10px', borderRadius: 9999 }}
-              onClick={() => setQuestion(ex)}
+              key={id}
+              className={`tab ${inputMode === id ? 'active' : ''}`}
+              onClick={() => { setInputMode(id); setResult(null); setError(null); }}
             >
-              {ex.length > 40 ? ex.slice(0, 40) + '...' : ex}
+              <Icon size={16} /> {label}
             </button>
           ))}
         </div>
 
         {/* Text Input */}
-        <textarea
-          className="textarea"
-          placeholder="e.g., Solve x^2 - 5x + 6 = 0"
-          value={question}
-          onChange={(e) => setQuestion(e.target.value)}
-          onKeyDown={handleKeyDown}
-          rows={4}
-          style={{ marginBottom: 16 }}
-        />
+        {inputMode === 'text' && (
+          <>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 16 }}>
+              {EXAMPLES.map((ex, i) => (
+                <button
+                  key={i}
+                  className="btn btn-ghost"
+                  style={{ fontSize: 12, padding: '4px 10px', borderRadius: 9999 }}
+                  onClick={() => setQuestion(ex)}
+                >
+                  {ex.length > 40 ? ex.slice(0, 40) + '...' : ex}
+                </button>
+              ))}
+            </div>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-            Ctrl+Enter to solve
-          </span>
-          <button
-            className="btn btn-primary btn-lg"
-            onClick={handleSolve}
-            disabled={loading || !question.trim()}
-          >
-            <Send size={18} />
-            {loading ? 'Solving...' : 'Solve Problem'}
-          </button>
-        </div>
+            <textarea
+              className="textarea"
+              placeholder="e.g., Solve x^2 - 5x + 6 = 0"
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              onKeyDown={handleKeyDown}
+              rows={4}
+              style={{ marginBottom: 16 }}
+            />
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Ctrl+Enter to solve</span>
+              <button className="btn btn-primary btn-lg" onClick={handleSolveText} disabled={loading || !question.trim()}>
+                <Send size={18} /> {loading ? 'Solving...' : 'Solve Problem'}
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* Image Input */}
+        {inputMode === 'image' && (
+          <ImageInput onSolve={handleSolveImage} loading={loading} />
+        )}
+
+        {/* Audio Input */}
+        {inputMode === 'audio' && (
+          <AudioInput onSolve={handleSolveAudio} loading={loading} />
+        )}
       </div>
 
       {/* Loading */}
@@ -142,7 +196,7 @@ export default function SolveTab({ settings }) {
       {error && !loading && (
         <div className="card slide-up" style={{ borderColor: 'var(--accent-red)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, color: 'var(--accent-red)' }}>
-            <span style={{ fontSize: 24 }}>!</span>
+            <span style={{ fontSize: 24, fontWeight: 700 }}>!</span>
             <div>
               <div style={{ fontWeight: 600 }}>Error</div>
               <div style={{ fontSize: 14, color: 'var(--text-secondary)' }}>{error}</div>
@@ -155,7 +209,7 @@ export default function SolveTab({ settings }) {
       {result && !loading && (
         <div className="slide-up" style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
           {/* Pipeline Steps */}
-          {result.pipeline_steps && result.pipeline_steps.length > 0 && (
+          {result.pipeline_steps?.length > 0 && (
             <div className="pipeline-steps">
               {result.pipeline_steps.map((step, i) => (
                 <React.Fragment key={step}>
@@ -163,7 +217,7 @@ export default function SolveTab({ settings }) {
                   <span className="pipeline-step">{step}</span>
                 </React.Fragment>
               ))}
-              {result.latency_ms && (
+              {result.latency_ms > 0 && (
                 <span style={{ fontSize: 12, color: 'var(--text-muted)', marginLeft: 8 }}>
                   {result.latency_ms.toFixed(0)}ms
                 </span>
@@ -171,20 +225,25 @@ export default function SolveTab({ settings }) {
             </div>
           )}
 
-          {/* Blocked Message */}
+          {/* Extraction info for image/audio */}
+          {result.input_type !== 'text' && result.extraction_text && (
+            <div className="card" style={{ borderColor: 'rgba(6, 182, 212, 0.3)' }}>
+              <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 4 }}>
+                Extracted Text (confidence: {(result.confidence * 100).toFixed(0)}%)
+              </div>
+              <div className="math-block">{result.extraction_text || result.question}</div>
+            </div>
+          )}
+
+          {/* Blocked */}
           {result.status === 'blocked' && (
             <div className="card" style={{ borderColor: 'var(--accent-red)' }}>
               <h3 style={{ color: 'var(--accent-red)', marginBottom: 8 }}>Input Blocked</h3>
-              <p style={{ color: 'var(--text-secondary)', marginBottom: 12 }}>
-                {result.blocked_reason}
-              </p>
-              {result.suggestions && result.suggestions.length > 0 && (
-                <div>
-                  <p style={{ fontSize: 13, fontWeight: 500, marginBottom: 8 }}>Suggestions:</p>
-                  <ul style={{ paddingLeft: 20, color: 'var(--text-secondary)', fontSize: 13 }}>
-                    {result.suggestions.map((s, i) => <li key={i} style={{ marginBottom: 4 }}>{s}</li>)}
-                  </ul>
-                </div>
+              <p style={{ color: 'var(--text-secondary)', marginBottom: 12 }}>{result.blocked_reason}</p>
+              {result.suggestions?.length > 0 && (
+                <ul style={{ paddingLeft: 20, color: 'var(--text-secondary)', fontSize: 13 }}>
+                  {result.suggestions.map((s, i) => <li key={i}>{s}</li>)}
+                </ul>
               )}
             </div>
           )}
@@ -192,34 +251,10 @@ export default function SolveTab({ settings }) {
           {/* Solution */}
           {result.status === 'success' && (
             <>
-              {/* Topic Badge */}
-              {result.detected_topic && (
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <BookOpen size={14} color="var(--accent-purple)" />
-                  <span className="badge badge-purple">{result.detected_topic}</span>
-                  <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                    {result.rag_results_count} sources found
-                  </span>
-                </div>
-              )}
-
-              {/* RAG Context */}
-              {settings.showRag && result.rag_sources && (
-                <RAGContext sources={result.rag_sources} />
-              )}
-
-              {/* Main Solution */}
+              {settings.showRag && result.rag_sources && <RAGContext sources={result.rag_sources} />}
               <SolutionDisplay result={result} />
-
-              {/* Evaluation */}
-              {result.evaluation && (
-                <EvaluationCard evaluation={result.evaluation} />
-              )}
-
-              {/* Feedback */}
-              {result.problem_id && (
-                <FeedbackSection problemId={result.problem_id} />
-              )}
+              {result.evaluation && <EvaluationCard evaluation={result.evaluation} />}
+              {result.problem_id && <FeedbackSection problemId={result.problem_id} />}
             </>
           )}
         </div>

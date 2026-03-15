@@ -1,10 +1,25 @@
 /**
  * API Client for Math Mentor FastAPI backend.
+ * Includes per-user tracking and file upload support.
  */
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
+// Generate or retrieve persistent user ID
+function getUserId() {
+  let userId = localStorage.getItem('math_mentor_user_id');
+  if (!userId) {
+    userId = 'user_' + crypto.randomUUID();
+    localStorage.setItem('math_mentor_user_id', userId);
+  }
+  return userId;
+}
+
 class ApiClient {
+  constructor() {
+    this.userId = getUserId();
+  }
+
   async request(endpoint, options = {}) {
     const url = `${API_BASE}${endpoint}`;
     const config = {
@@ -12,21 +27,33 @@ class ApiClient {
       ...options,
     };
 
+    let response;
     try {
-      const response = await fetch(url, config);
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.detail || `HTTP ${response.status}`);
-      }
-
-      return data;
+      response = await fetch(url, config);
     } catch (error) {
-      if (error.name === 'TypeError' && error.message === 'Failed to fetch') {
-        throw new Error('Cannot connect to API server. Is it running on port 8000?');
-      }
-      throw error;
+      throw new Error(
+        'Cannot connect to API server. Make sure the backend is running.\n\n' +
+        'Run: uvicorn api.main:app --reload --port 8000'
+      );
     }
+
+    const text = await response.text();
+    if (!text || text.trim() === '') {
+      throw new Error('Empty response. Is the API server running?');
+    }
+
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new Error('Invalid response from server');
+    }
+
+    if (!response.ok) {
+      throw new Error(data.detail || data.error || `HTTP ${response.status}`);
+    }
+
+    return data;
   }
 
   // Health
@@ -34,7 +61,7 @@ class ApiClient {
     return this.request('/health');
   }
 
-  // Solve
+  // Solve text
   async solve(question, topK = 3, includeEvaluation = true) {
     return this.request('/solve', {
       method: 'POST',
@@ -42,7 +69,51 @@ class ApiClient {
         question,
         top_k: topK,
         include_evaluation: includeEvaluation,
+        user_id: this.userId,
+        input_type: 'text',
       }),
+    });
+  }
+
+  // Solve from image
+  async solveImage(file, topK = 3, includeEvaluation = true) {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('top_k', topK.toString());
+    formData.append('include_evaluation', includeEvaluation.toString());
+    formData.append('user_id', this.userId);
+
+    return this.request('/solve/image', {
+      method: 'POST',
+      headers: {},  // Let browser set content-type with boundary
+      body: formData,
+    });
+  }
+
+  // Solve from audio
+  async solveAudio(file, topK = 3, includeEvaluation = true) {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('top_k', topK.toString());
+    formData.append('include_evaluation', includeEvaluation.toString());
+    formData.append('user_id', this.userId);
+
+    return this.request('/solve/audio', {
+      method: 'POST',
+      headers: {},
+      body: formData,
+    });
+  }
+
+  // Extract text from image (for HITL preview)
+  async extractImage(file) {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    return this.request('/solve/extract/image', {
+      method: 'POST',
+      headers: {},
+      body: formData,
     });
   }
 
@@ -50,11 +121,7 @@ class ApiClient {
   async retrieve(query, topK = 3, topicFilter = null) {
     return this.request('/retrieve', {
       method: 'POST',
-      body: JSON.stringify({
-        query,
-        top_k: topK,
-        topic_filter: topicFilter,
-      }),
+      body: JSON.stringify({ query, top_k: topK, topic_filter: topicFilter }),
     });
   }
 
@@ -66,9 +133,12 @@ class ApiClient {
     });
   }
 
-  // History
+  // History (per-user)
   async getHistory(limit = 10, topic = '') {
-    const params = new URLSearchParams({ limit, topic });
+    const params = new URLSearchParams();
+    params.set('limit', limit);
+    params.set('user_id', this.userId);
+    if (topic) params.set('topic', topic);
     return this.request(`/memory/history?${params}`);
   }
 
@@ -81,16 +151,17 @@ class ApiClient {
         is_correct: isCorrect,
         comment,
         corrected_solution: correctedSolution,
+        user_id: this.userId,
       }),
     });
   }
 
-  // Stats
+  // Stats (per-user)
   async getStats() {
-    return this.request('/memory/stats');
+    return this.request(`/memory/stats?user_id=${this.userId}`);
   }
 
-  // Evaluate solution
+  // Evaluate
   async evaluateSolution(question, solution, explanation = '') {
     return this.request('/evaluate/solution', {
       method: 'POST',
@@ -110,6 +181,11 @@ class ApiClient {
         include_guardrails: true,
       }),
     });
+  }
+
+  // Get user ID
+  getUserId() {
+    return this.userId;
   }
 }
 

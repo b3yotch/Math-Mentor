@@ -27,11 +27,11 @@ class SolveStatus(str, Enum):
 # Requests
 # ============================================================
 class SolveRequest(BaseModel):
-    question: str = Field(..., min_length=1, max_length=2000, description="Math problem to solve")
-    top_k: int = Field(default=3, ge=1, le=10, description="Number of RAG documents")
-    include_evaluation: bool = Field(default=True, description="Run quality evaluation")
-
-    model_config = {"json_schema_extra": {"examples": [{"question": "Solve x^2 - 5x + 6 = 0", "top_k": 3, "include_evaluation": True}]}}
+    question: str = Field(..., min_length=1, max_length=2000)
+    top_k: int = Field(default=3, ge=1, le=10)
+    include_evaluation: bool = Field(default=True)
+    user_id: Optional[str] = None
+    input_type: str = "text"
 
 
 class RetrieveRequest(BaseModel):
@@ -49,6 +49,7 @@ class FeedbackRequest(BaseModel):
     is_correct: bool
     comment: Optional[str] = ""
     corrected_solution: Optional[str] = ""
+    user_id: Optional[str] = None
 
 
 class EvaluateRequest(BaseModel):
@@ -79,6 +80,12 @@ class RAGSource(BaseModel):
     content_preview: str = ""
 
 
+class ParsedProblem(BaseModel):
+    type: str = ""
+    what_to_find: str = ""
+    given: str = ""
+
+
 class EvaluationResult(BaseModel):
     overall_score: float = 0.0
     grade: str = "F"
@@ -95,13 +102,15 @@ class EvaluationResult(BaseModel):
 class SolveResponse(BaseModel):
     status: SolveStatus
     question: str
+    input_type: str = "text"
     detected_topic: Optional[str] = None
     normalized_question: Optional[str] = None
-    solution: Optional[str] = None
+    parsed_problem: Optional[ParsedProblem] = None
+    solution_steps: Optional[List[str]] = None
     final_answer: Optional[str] = None
+    solution: Optional[str] = None
     verification: Optional[str] = None
     explanation: Optional[str] = None
-    parsed_problem: Optional[Dict[str, Any]] = None
     rag_results_count: int = 0
     rag_sources: List[RAGSource] = []
     similar_problems_found: int = 0
@@ -112,6 +121,9 @@ class SolveResponse(BaseModel):
     error: Optional[str] = None
     blocked_reason: Optional[str] = None
     suggestions: Optional[List[str]] = None
+    confidence: float = 1.0
+    was_human_edited: bool = False
+    extraction_text: Optional[str] = None
 
 
 class GuardrailsResponse(BaseModel):
@@ -167,3 +179,10 @@ class HealthResponse(BaseModel):
     guardrails_active: bool = True
     memory_available: bool = False
     version: str = "1.0.0"
+
+
+class ExtractionResponse(BaseModel):
+    extracted_text: str
+    confidence: float
+    input_type: str
+    metadata: Dict[str, Any] = {}
