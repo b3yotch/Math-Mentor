@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import {
   FileText, CheckCircle, Lightbulb, Target, BookOpen,
-  AlertTriangle, ChevronDown, ChevronUp, Award,
+  AlertTriangle, ChevronDown, ChevronUp, Award, Zap,
+  Database,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
@@ -14,9 +15,46 @@ export default function SolutionDisplay({ result }) {
   const verification = result.verification || '';
   const explanation = result.explanation || '';
   const topic = result.detected_topic || '';
+  const fromCache = result.from_cache || false;
+  const cacheSimilarity = result.cache_similarity;
 
   return (
     <div className="solution-container">
+
+      {/* Cache Hit Banner */}
+      {fromCache && (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          padding: '10px 16px',
+          borderRadius: 'var(--radius-md)',
+          background: 'var(--accent-green-bg)',
+          border: '1px solid rgba(34, 197, 94, 0.25)',
+          marginBottom: 4,
+        }}>
+          <Zap size={18} color="var(--accent-green)" />
+          <div>
+            <span style={{
+              fontSize: 14, fontWeight: 600,
+              color: 'var(--accent-green)',
+            }}>
+              Instant Answer — Retrieved from Memory
+            </span>
+            <span style={{
+              fontSize: 12, color: 'var(--text-muted)', marginLeft: 8,
+            }}>
+              {cacheSimilarity !== null && cacheSimilarity !== undefined
+                ? `${(cacheSimilarity * 100).toFixed(0)}% match`
+                : 'Exact match'
+              }
+              {result.latency_ms > 0 && ` • ${result.latency_ms.toFixed(0)}ms`}
+            </span>
+          </div>
+          <Database size={14} color="var(--accent-green)" style={{ marginLeft: 'auto' }} />
+        </div>
+      )}
+
       {/* Problem Understanding */}
       {(parsed.type || parsed.what_to_find || parsed.given) && (
         <div className="solution-section" style={{ borderLeft: '3px solid var(--accent-cyan)' }}>
@@ -27,7 +65,10 @@ export default function SolutionDisplay({ result }) {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
             {parsed.type && (
               <div>
-                <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>
+                <div style={{
+                  fontSize: 11, color: 'var(--text-muted)',
+                  textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4,
+                }}>
                   Type
                 </div>
                 <span className="badge badge-purple">{parsed.type}</span>
@@ -35,18 +76,28 @@ export default function SolutionDisplay({ result }) {
             )}
             {parsed.what_to_find && (
               <div>
-                <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>
+                <div style={{
+                  fontSize: 11, color: 'var(--text-muted)',
+                  textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4,
+                }}>
                   Find
                 </div>
-                <div style={{ fontSize: 14, color: 'var(--text-secondary)' }}>{parsed.what_to_find}</div>
+                <div style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
+                  {parsed.what_to_find}
+                </div>
               </div>
             )}
             {parsed.given && (
               <div>
-                <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>
+                <div style={{
+                  fontSize: 11, color: 'var(--text-muted)',
+                  textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4,
+                }}>
                   Given
                 </div>
-                <div style={{ fontSize: 14, color: 'var(--text-secondary)' }}>{parsed.given}</div>
+                <div style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
+                  {parsed.given}
+                </div>
               </div>
             )}
           </div>
@@ -55,12 +106,18 @@ export default function SolutionDisplay({ result }) {
 
       {/* Solution Steps */}
       <div className="solution-section" style={{ borderLeft: '3px solid var(--accent-blue)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <div style={{
+          display: 'flex', justifyContent: 'space-between',
+          alignItems: 'center', marginBottom: 16,
+        }}>
           <h3 style={{ margin: 0 }}>
             <FileText size={18} color="var(--accent-blue)" />
-            Solution Steps
+            Solution
             {steps.length > 0 && (
-              <span style={{ fontSize: 13, color: 'var(--text-muted)', fontWeight: 400, marginLeft: 8 }}>
+              <span style={{
+                fontSize: 13, color: 'var(--text-muted)',
+                fontWeight: 400, marginLeft: 8,
+              }}>
                 ({steps.length} {steps.length === 1 ? 'step' : 'steps'})
               </span>
             )}
@@ -69,30 +126,19 @@ export default function SolutionDisplay({ result }) {
             <button
               onClick={() => setShowAllSteps(!showAllSteps)}
               style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 4,
+                display: 'flex', alignItems: 'center', gap: 4,
                 background: 'none',
                 border: '1px solid var(--border-color)',
-                borderRadius: 6,
-                padding: '4px 10px',
+                borderRadius: 6, padding: '4px 10px',
                 color: 'var(--text-secondary)',
-                cursor: 'pointer',
-                fontSize: 12,
+                cursor: 'pointer', fontSize: 12,
                 transition: 'all 0.2s ease',
               }}
             >
-              {showAllSteps ? (
-                <>
-                  <ChevronUp size={14} />
-                  Collapse
-                </>
-              ) : (
-                <>
-                  <ChevronDown size={14} />
-                  Expand All
-                </>
-              )}
+              {showAllSteps
+                ? <><ChevronUp size={14} /> Collapse</>
+                : <><ChevronDown size={14} /> Expand All</>
+              }
             </button>
           )}
         </div>
@@ -103,60 +149,41 @@ export default function SolutionDisplay({ result }) {
               <div
                 key={index}
                 style={{
-                  display: showAllSteps || index === 0 || index === steps.length - 1 ? 'flex' : 'none',
-                  gap: 12,
-                  padding: 12,
-                  borderRadius: 8,
+                  display: showAllSteps || index === 0 || index === steps.length - 1
+                    ? 'flex' : 'none',
+                  gap: 12, padding: 12, borderRadius: 8,
                   background: 'var(--bg-tertiary)',
-                  transition: 'all 0.2s ease',
                 }}
               >
-                <div
-                  style={{
-                    minWidth: 28,
-                    height: 28,
-                    borderRadius: '50%',
-                    background: 'var(--accent-blue)',
-                    color: '#fff',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: 13,
-                    fontWeight: 600,
-                    flexShrink: 0,
-                  }}
-                >
+                <div style={{
+                  minWidth: 28, height: 28, borderRadius: '50%',
+                  background: 'var(--accent-blue)', color: '#fff',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 13, fontWeight: 600, flexShrink: 0,
+                }}>
                   {index + 1}
                 </div>
-                <div style={{ flex: 1, fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-                  {typeof step === 'string' ? (
-                    <ReactMarkdown>{step}</ReactMarkdown>
-                  ) : (
-                    <>
-                      {step.title && (
-                        <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
-                          {step.title}
-                        </div>
-                      )}
-                      <ReactMarkdown>{step.content || step.description || ''}</ReactMarkdown>
-                    </>
-                  )}
+                <div style={{
+                  flex: 1, fontSize: 14,
+                  color: 'var(--text-secondary)', lineHeight: 1.6,
+                }}>
+                  <ReactMarkdown>{typeof step === 'string' ? step : (step.content || step.description || '')}</ReactMarkdown>
                 </div>
               </div>
             ))}
             {!showAllSteps && steps.length > 2 && (
-              <div
-                style={{
-                  textAlign: 'center',
-                  padding: '8px 0',
-                  color: 'var(--text-muted)',
-                  fontSize: 13,
-                  fontStyle: 'italic',
-                }}
-              >
-                ... {steps.length - 2} more {steps.length - 2 === 1 ? 'step' : 'steps'} hidden
+              <div style={{
+                textAlign: 'center', padding: '8px 0',
+                color: 'var(--text-muted)', fontSize: 13, fontStyle: 'italic',
+              }}>
+                ... {steps.length - 2} more steps hidden
               </div>
             )}
+          </div>
+        ) : result.solution ? (
+          /* Fallback: render full solution text if no structured steps */
+          <div style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
+            <ReactMarkdown>{result.solution}</ReactMarkdown>
           </div>
         ) : (
           <div style={{ color: 'var(--text-muted)', fontSize: 14, fontStyle: 'italic' }}>
@@ -167,29 +194,21 @@ export default function SolutionDisplay({ result }) {
 
       {/* Final Answer */}
       {answer && (
-        <div
-          className="solution-section"
-          style={{
-            borderLeft: '3px solid var(--accent-green)',
-            background: 'var(--bg-tertiary)',
-          }}
-        >
+        <div className="solution-section" style={{
+          borderLeft: '3px solid var(--accent-green)',
+          background: 'var(--bg-tertiary)',
+        }}>
           <h3>
             <Award size={18} color="var(--accent-green)" />
             Final Answer
           </h3>
-          <div
-            style={{
-              padding: 16,
-              borderRadius: 8,
-              background: 'var(--bg-primary)',
-              border: '1px solid var(--accent-green)',
-              fontSize: 16,
-              fontWeight: 600,
-              color: 'var(--text-primary)',
-              lineHeight: 1.6,
-            }}
-          >
+          <div style={{
+            padding: 16, borderRadius: 8,
+            background: 'var(--bg-primary)',
+            border: '1px solid var(--accent-green)',
+            fontSize: 16, fontWeight: 600,
+            color: 'var(--text-primary)', lineHeight: 1.6,
+          }}>
             <ReactMarkdown>{answer}</ReactMarkdown>
           </div>
         </div>
@@ -223,23 +242,26 @@ export default function SolutionDisplay({ result }) {
 
       {/* Detected Topic */}
       {topic && (
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            padding: '8px 12px',
-            borderRadius: 6,
-            background: 'var(--bg-tertiary)',
-            fontSize: 12,
-            color: 'var(--text-muted)',
-            marginTop: 8,
-          }}
-        >
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 8,
+          padding: '8px 12px', borderRadius: 6,
+          background: 'var(--bg-tertiary)',
+          fontSize: 12, color: 'var(--text-muted)', marginTop: 8,
+        }}>
           <BookOpen size={14} />
           <span>
-            Topic: <span style={{ color: 'var(--text-secondary)', fontWeight: 500 }}>{topic}</span>
+            Topic: <span style={{ color: 'var(--text-secondary)', fontWeight: 500 }}>
+              {topic}
+            </span>
           </span>
+          {fromCache && (
+            <span style={{
+              marginLeft: 'auto', color: 'var(--accent-green)',
+              display: 'flex', alignItems: 'center', gap: 4,
+            }}>
+              <Zap size={12} /> From Memory
+            </span>
+          )}
         </div>
       )}
     </div>
