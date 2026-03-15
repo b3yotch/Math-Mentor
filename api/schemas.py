@@ -32,6 +32,8 @@ class SolveRequest(BaseModel):
     include_evaluation: bool = Field(default=True)
     user_id: Optional[str] = None
     input_type: str = "text"
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+    was_human_edited: bool = Field(default=False)
 
 
 class RetrieveRequest(BaseModel):
@@ -124,6 +126,8 @@ class SolveResponse(BaseModel):
     confidence: float = 1.0
     was_human_edited: bool = False
     extraction_text: Optional[str] = None
+    from_cache: bool = False                    # NEW: indicates cached response
+    cache_similarity: Optional[float] = None    # NEW: how similar to cached problem
 
 
 class GuardrailsResponse(BaseModel):
@@ -150,6 +154,9 @@ class HistoryItem(BaseModel):
     question: str = ""
     topic: str = ""
     solution_preview: str = ""
+    solution: str = ""              # Full solution text
+    explanation: str = ""           # Full explanation
+    verification: str = ""         # Verification text
     confidence: float = 0.0
     was_human_edited: bool = False
     created_at: str = ""
