@@ -33,19 +33,19 @@ export default function SolveTab({ settings }) {
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
 
-  const startLoading = () => {
+  const startLoading = (mode) => {
     setLoading(true);
     setError(null);
     setResult(null);
 
     const steps = {
       text: ['Checking guardrails...', 'Searching knowledge base...', 'Solving with AI...', 'Evaluating quality...'],
-      image: ['Running OCR...', 'Extracting text...', 'Searching knowledge base...', 'Solving with AI...'],
-      audio: ['Transcribing audio...', 'Processing text...', 'Searching knowledge base...', 'Solving with AI...'],
+      image: ['Checking guardrails...', 'Searching knowledge base...', 'Solving with AI...', 'Evaluating quality...'],
+      audio: ['Checking guardrails...', 'Searching knowledge base...', 'Solving with AI...', 'Evaluating quality...'],
     };
 
     let idx = 0;
-    const msgs = steps[inputMode] || steps.text;
+    const msgs = steps[mode || inputMode] || steps.text;
     const interval = setInterval(() => {
       if (idx < msgs.length) {
         setLoadingStep(msgs[idx]);
@@ -56,12 +56,13 @@ export default function SolveTab({ settings }) {
     return interval;
   };
 
+  // Text input: solve directly
   const handleSolveText = async () => {
     if (!question.trim()) {
       toast.error('Please enter a math problem');
       return;
     }
-    const interval = startLoading();
+    const interval = startLoading('text');
 
     try {
       const data = await api.solve(question, settings.topK, settings.includeEval);
@@ -78,12 +79,29 @@ export default function SolveTab({ settings }) {
     }
   };
 
-  const handleSolveImage = async (file) => {
-    const interval = startLoading();
+  // Image HITL: receives extracted text + metadata from ImageInput
+  const handleSolveImage = async (extractedText, hitlMeta = {}) => {
+    if (!extractedText || !extractedText.trim()) {
+      toast.error('No text to solve');
+      return;
+    }
+
+    const interval = startLoading('image');
+
     try {
-      const data = await api.solveImage(file, settings.topK, settings.includeEval);
+      const data = await api.solve(
+        extractedText,
+        settings.topK,
+        settings.includeEval,
+        {
+          inputType: hitlMeta.inputType || 'image',
+          confidence: hitlMeta.confidence || 1.0,
+          wasHumanEdited: hitlMeta.wasHumanEdited || false,
+        }
+      );
       setResult(data);
-      if (data.status === 'success') toast.success('Image solved!');
+      if (data.status === 'success') toast.success('Image problem solved!');
+      else if (data.status === 'blocked') toast.error('Input blocked by guardrails');
     } catch (err) {
       setError(err.message);
       toast.error(err.message);
@@ -94,12 +112,29 @@ export default function SolveTab({ settings }) {
     }
   };
 
-  const handleSolveAudio = async (file) => {
-    const interval = startLoading();
+  // Audio HITL: receives transcribed text + metadata from AudioInput
+  const handleSolveAudio = async (extractedText, hitlMeta = {}) => {
+    if (!extractedText || !extractedText.trim()) {
+      toast.error('No text to solve');
+      return;
+    }
+
+    const interval = startLoading('audio');
+
     try {
-      const data = await api.solveAudio(file, settings.topK, settings.includeEval);
+      const data = await api.solve(
+        extractedText,
+        settings.topK,
+        settings.includeEval,
+        {
+          inputType: hitlMeta.inputType || 'audio',
+          confidence: hitlMeta.confidence || 1.0,
+          wasHumanEdited: hitlMeta.wasHumanEdited || false,
+        }
+      );
       setResult(data);
-      if (data.status === 'success') toast.success('Audio solved!');
+      if (data.status === 'success') toast.success('Audio problem solved!');
+      else if (data.status === 'blocked') toast.error('Input blocked by guardrails');
     } catch (err) {
       setError(err.message);
       toast.error(err.message);
@@ -174,12 +209,12 @@ export default function SolveTab({ settings }) {
           </>
         )}
 
-        {/* Image Input */}
+        {/* Image Input — HITL: Extract → Edit → Solve */}
         {inputMode === 'image' && (
           <ImageInput onSolve={handleSolveImage} loading={loading} />
         )}
 
-        {/* Audio Input */}
+        {/* Audio Input — HITL: Transcribe → Edit → Solve */}
         {inputMode === 'audio' && (
           <AudioInput onSolve={handleSolveAudio} loading={loading} />
         )}
@@ -226,12 +261,22 @@ export default function SolveTab({ settings }) {
           )}
 
           {/* Extraction info for image/audio */}
-          {result.input_type !== 'text' && result.extraction_text && (
+          {result.input_type !== 'text' && (
             <div className="card" style={{ borderColor: 'rgba(6, 182, 212, 0.3)' }}>
-              <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 4 }}>
-                Extracted Text (confidence: {(result.confidence * 100).toFixed(0)}%)
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                  {result.input_type === 'image' ? '📷 OCR' : '🎤 ASR'} Input
+                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  {result.was_human_edited && (
+                    <span className="badge badge-cyan" style={{ fontSize: 11 }}>✏️ Human Edited</span>
+                  )}
+                  <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                    Confidence: {(result.confidence * 100).toFixed(0)}%
+                  </span>
+                </div>
               </div>
-              <div className="math-block">{result.extraction_text || result.question}</div>
+              <div className="math-block">{result.question}</div>
             </div>
           )}
 

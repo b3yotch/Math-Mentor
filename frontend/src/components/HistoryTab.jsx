@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import {
   Clock, FileText, Camera, Mic, ChevronDown,
-  ChevronUp, Search, Filter, RefreshCw,
+  ChevronUp, Filter, RefreshCw, BookOpen,
+  CheckCircle, Lightbulb,
 } from 'lucide-react';
 import api from '../api/client';
 import LoadingSpinner from './LoadingSpinner';
@@ -73,6 +74,7 @@ export default function HistoryTab() {
               <option value="statistics">Statistics</option>
               <option value="linear_algebra">Linear Algebra</option>
               <option value="trigonometry">Trigonometry</option>
+              <option value="geometry">Geometry</option>
             </select>
           </div>
 
@@ -130,6 +132,7 @@ export default function HistoryTab() {
 
             return (
               <div key={problem.id || index} className="collapsible">
+                {/* Collapsed Header */}
                 <button
                   className="collapsible-header"
                   onClick={() => toggleExpand(problem.id)}
@@ -170,40 +173,100 @@ export default function HistoryTab() {
                   </div>
                 </button>
 
+                {/* Expanded Content — Full Solution */}
                 {isExpanded && (
-                  <div className="collapsible-body">
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
-                      <div>
-                        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Input Type</span>
-                        <p style={{ fontSize: 14, fontWeight: 500 }}>{problem.input_type}</p>
-                      </div>
-                      <div>
-                        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Confidence</span>
-                        <p style={{ fontSize: 14, fontWeight: 500 }}>{(problem.confidence * 100).toFixed(0)}%</p>
-                      </div>
+                  <div className="collapsible-body" style={{ padding: '16px 16px 20px' }}>
+                    {/* Meta row */}
+                    <div style={{
+                      display: 'grid', gridTemplateColumns: '1fr 1fr 1fr',
+                      gap: 16, marginBottom: 20,
+                    }}>
+                      <MetaItem label="Input Type" value={problem.input_type} />
+                      <MetaItem
+                        label="Confidence"
+                        value={`${(problem.confidence * 100).toFixed(0)}%`}
+                      />
+                      <MetaItem
+                        label="Status"
+                        value={
+                          problem.was_human_edited
+                            ? '✏️ Human Edited'
+                            : '🤖 Auto-processed'
+                        }
+                      />
                     </div>
 
-                    <div style={{ marginBottom: 16 }}>
-                      <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>
-                        Problem
-                      </span>
+                    {/* Problem */}
+                    <SectionBlock
+                      icon={<BookOpen size={14} color="var(--accent-cyan)" />}
+                      label="Problem"
+                    >
                       <div className="math-block">{problem.question}</div>
-                    </div>
+                    </SectionBlock>
 
-                    <div>
-                      <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>
-                        Solution
-                      </span>
-                      <div className="solution-content" style={{ fontSize: 13 }}>
+                    {/* Full Solution */}
+                    <SectionBlock
+                      icon={<FileText size={14} color="var(--accent-blue)" />}
+                      label="Solution"
+                    >
+                      <div className="solution-content" style={{
+                        fontSize: 14,
+                        color: 'var(--text-secondary)',
+                        lineHeight: 1.7,
+                      }}>
                         <ReactMarkdown>
-                          {problem.solution_preview || 'No solution recorded'}
+                          {problem.solution || problem.solution_preview || 'No solution recorded'}
                         </ReactMarkdown>
                       </div>
-                    </div>
+                    </SectionBlock>
 
+                    {/* Explanation */}
+                    {problem.explanation && (
+                      <SectionBlock
+                        icon={<Lightbulb size={14} color="var(--accent-purple)" />}
+                        label="Explanation"
+                      >
+                        <div style={{
+                          fontSize: 14,
+                          color: 'var(--text-secondary)',
+                          lineHeight: 1.7,
+                        }}>
+                          <ReactMarkdown>{problem.explanation}</ReactMarkdown>
+                        </div>
+                      </SectionBlock>
+                    )}
+
+                    {/* Verification */}
+                    {problem.verification && (
+                      <SectionBlock
+                        icon={<CheckCircle size={14} color="var(--accent-green)" />}
+                        label="Verification"
+                      >
+                        <div style={{
+                          fontSize: 14,
+                          color: 'var(--text-secondary)',
+                          lineHeight: 1.7,
+                        }}>
+                          <ReactMarkdown>{problem.verification}</ReactMarkdown>
+                        </div>
+                      </SectionBlock>
+                    )}
+
+                    {/* Human edited badge */}
                     {problem.was_human_edited && (
-                      <div style={{ marginTop: 12 }}>
-                        <span className="badge badge-orange">Human Edited</span>
+                      <div style={{
+                        marginTop: 12,
+                        padding: '6px 12px',
+                        borderRadius: 'var(--radius-sm)',
+                        background: 'var(--accent-cyan-bg)',
+                        border: '1px solid rgba(6, 182, 212, 0.2)',
+                        fontSize: 12,
+                        color: 'var(--accent-cyan)',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 4,
+                      }}>
+                        ✏️ Input was reviewed and edited by user
                       </div>
                     )}
                   </div>
@@ -217,8 +280,45 @@ export default function HistoryTab() {
   );
 }
 
+// ============================================================
+// Sub-components
+// ============================================================
+
 function ConfidenceBadge({ value }) {
-  const pct = (value * 100).toFixed(0);
-  const cls = value >= 0.7 ? 'badge-green' : value >= 0.5 ? 'badge-orange' : 'badge-red';
+  const pct = ((value || 0) * 100).toFixed(0);
+  const cls = value >= 0.7 ? 'badge-green' : value >= 0.5 ? 'badge-yellow' : 'badge-red';
   return <span className={`badge ${cls}`} style={{ fontSize: 11 }}>{pct}%</span>;
+}
+
+function MetaItem({ label, value }) {
+  return (
+    <div>
+      <div style={{
+        fontSize: 11, color: 'var(--text-muted)',
+        textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4,
+      }}>
+        {label}
+      </div>
+      <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-secondary)' }}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function SectionBlock({ icon, label, children }) {
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 6,
+        fontSize: 12, color: 'var(--text-muted)',
+        textTransform: 'uppercase', letterSpacing: 0.5,
+        marginBottom: 8,
+      }}>
+        {icon}
+        {label}
+      </div>
+      {children}
+    </div>
+  );
 }

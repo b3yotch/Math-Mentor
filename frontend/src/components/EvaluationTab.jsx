@@ -1,70 +1,46 @@
 import React, { useState } from 'react';
 import {
-  BarChart3, Play, Settings, Download,
-  CheckCircle, XCircle, AlertTriangle,
+  Settings, Play, AlertTriangle, CheckCircle,
+  BarChart3, ChevronDown, ChevronUp,
 } from 'lucide-react';
 import api from '../api/client';
 import toast from 'react-hot-toast';
 import LoadingSpinner from './LoadingSpinner';
 
 export default function EvaluationTab() {
-  const [config, setConfig] = useState({
-    topic: '',
-    maxCases: 10,
-    includeRag: true,
-    includeSolutions: true,
-    includeGuardrails: true,
-  });
+  const [topicFilter, setTopicFilter] = useState('');
+  const [maxCases, setMaxCases] = useState(10);
+  const [includeRag, setIncludeRag] = useState(true);
+  const [includeSolutions, setIncludeSolutions] = useState(true);
+  const [includeGuardrails, setIncludeGuardrails] = useState(true);
   const [loading, setLoading] = useState(false);
-  const [loadingMsg, setLoadingMsg] = useState('');
-  const [report, setReport] = useState(null);
+  const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
+  const [expandedComponent, setExpandedComponent] = useState(null);
 
   const handleRun = async () => {
     setLoading(true);
     setError(null);
-    setReport(null);
-    setLoadingMsg('Starting evaluation...');
-
-    const messages = [
-      'Preparing test cases...',
-      'Evaluating RAG retrieval...',
-      'Testing solution accuracy...',
-      'Checking guardrails...',
-      'Generating report...',
-    ];
-
-    let msgIndex = 0;
-    const interval = setInterval(() => {
-      if (msgIndex < messages.length) {
-        setLoadingMsg(messages[msgIndex]);
-        msgIndex++;
-      }
-    }, 3000);
+    setResult(null);
 
     try {
-      const data = await api.runBatchEvaluation(config.topic, config.maxCases);
-      setReport(data);
-      toast.success('Evaluation complete!');
+      const data = await api.runBatchEvaluation(topicFilter, maxCases);
+      setResult(data);
+      if (data.status === 'success') {
+        toast.success(`Evaluation complete: ${data.overall_grade}`);
+      }
     } catch (err) {
       setError(err.message);
       toast.error('Evaluation failed');
     } finally {
-      clearInterval(interval);
       setLoading(false);
-      setLoadingMsg('');
     }
   };
 
-  const downloadReport = () => {
-    if (!report) return;
-    const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `eval_report_${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+  const gradeColor = (score) => {
+    if (score >= 70) return 'var(--accent-green)';
+    if (score >= 50) return 'var(--accent-yellow)';
+    return 'var(--accent-red)';
   };
 
   return (
@@ -75,19 +51,18 @@ export default function EvaluationTab() {
           <Settings size={20} color="var(--accent-blue)" />
           <div>
             <div className="card-title">Evaluation Configuration</div>
-            <div className="card-subtitle">
-              Test system performance against known math problems
-            </div>
+            <div className="card-subtitle">Test system performance against known math problems</div>
           </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
+          {/* Topic filter */}
           <div className="input-group">
             <label className="input-label">Topic Filter</label>
             <select
               className="select"
-              value={config.topic}
-              onChange={(e) => setConfig({ ...config, topic: e.target.value })}
+              value={topicFilter}
+              onChange={(e) => setTopicFilter(e.target.value)}
             >
               <option value="">All Topics</option>
               <option value="algebra">Algebra</option>
@@ -95,57 +70,49 @@ export default function EvaluationTab() {
               <option value="probability">Probability</option>
               <option value="statistics">Statistics</option>
               <option value="linear_algebra">Linear Algebra</option>
+              <option value="trigonometry">Trigonometry</option>
             </select>
           </div>
 
+          {/* Max cases */}
           <div className="input-group">
-            <label className="input-label">Max Test Cases: {config.maxCases}</label>
+            <label className="input-label">Max Test Cases: {maxCases}</label>
             <input
               type="range"
-              min="5" max="26"
-              value={config.maxCases}
-              onChange={(e) => setConfig({ ...config, maxCases: parseInt(e.target.value) })}
-              style={{ width: '100%', accentColor: 'var(--accent-blue)' }}
+              min={1}
+              max={26}
+              value={maxCases}
+              onChange={(e) => setMaxCases(parseInt(e.target.value))}
             />
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: 16, marginBottom: 20 }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--text-secondary)', cursor: 'pointer' }}>
-            <input
-              type="checkbox"
-              checked={config.includeRag}
-              onChange={(e) => setConfig({ ...config, includeRag: e.target.checked })}
-              style={{ accentColor: 'var(--accent-blue)' }}
-            />
-            RAG Retrieval
-          </label>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--text-secondary)', cursor: 'pointer' }}>
-            <input
-              type="checkbox"
-              checked={config.includeSolutions}
-              onChange={(e) => setConfig({ ...config, includeSolutions: e.target.checked })}
-              style={{ accentColor: 'var(--accent-blue)' }}
-            />
-            Solutions
-          </label>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--text-secondary)', cursor: 'pointer' }}>
-            <input
-              type="checkbox"
-              checked={config.includeGuardrails}
-              onChange={(e) => setConfig({ ...config, includeGuardrails: e.target.checked })}
-              style={{ accentColor: 'var(--accent-blue)' }}
-            />
-            Guardrails
-          </label>
+        {/* Component toggles */}
+        <div style={{ display: 'flex', gap: 16, marginBottom: 20, flexWrap: 'wrap' }}>
+          <CheckboxToggle
+            label="RAG Retrieval"
+            checked={includeRag}
+            onChange={setIncludeRag}
+          />
+          <CheckboxToggle
+            label="Solutions"
+            checked={includeSolutions}
+            onChange={setIncludeSolutions}
+          />
+          <CheckboxToggle
+            label="Guardrails"
+            checked={includeGuardrails}
+            onChange={setIncludeGuardrails}
+          />
         </div>
 
         <button
-          className="btn btn-primary btn-lg btn-full"
+          className="btn btn-primary btn-lg"
           onClick={handleRun}
           disabled={loading}
+          style={{ width: '100%' }}
         >
-          <Play size={18} />
+          <Play size={16} />
           {loading ? 'Running Evaluation...' : 'Run Evaluation'}
         </button>
       </div>
@@ -153,117 +120,195 @@ export default function EvaluationTab() {
       {/* Loading */}
       {loading && (
         <div className="card slide-up">
-          <LoadingSpinner text={loadingMsg || 'Evaluating...'} />
+          <LoadingSpinner text="Running evaluation against test dataset..." />
         </div>
       )}
 
       {/* Error */}
       {error && !loading && (
-        <div className="card" style={{ borderColor: 'var(--accent-red)' }}>
-          <p style={{ color: 'var(--accent-red)' }}>Error: {error}</p>
+        <div className="card slide-up" style={{ borderColor: 'var(--accent-red)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, color: 'var(--accent-red)' }}>
+            <AlertTriangle size={20} />
+            <div>
+              <div style={{ fontWeight: 600 }}>Evaluation Failed</div>
+              <div style={{ fontSize: 14, color: 'var(--text-secondary)', marginTop: 4 }}>{error}</div>
+            </div>
+          </div>
         </div>
       )}
 
       {/* Results */}
-      {report && !loading && (
+      {result && !loading && (
         <div className="slide-up" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-          {/* Overall Score */}
-          <div className="card" style={{ textAlign: 'center' }}>
-            <div style={{ display: 'flex', justifyContent: 'center', gap: 40, alignItems: 'center', marginBottom: 16 }}>
-              <div>
-                <div style={{ fontSize: 48, fontWeight: 800, background: 'var(--gradient-primary)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-                  {report.overall_score?.toFixed(1)}%
+          {/* Overall Score Card */}
+          <div className="card" style={{ borderColor: gradeColor(result.overall_score) }}>
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              flexWrap: 'wrap', gap: 16,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                {/* Score ring */}
+                <div style={{
+                  width: 72, height: 72, borderRadius: '50%',
+                  border: `3px solid ${gradeColor(result.overall_score)}`,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  flexDirection: 'column',
+                }}>
+                  <span style={{
+                    fontSize: 22, fontWeight: 700,
+                    color: gradeColor(result.overall_score),
+                  }}>
+                    {result.overall_score?.toFixed(0)}%
+                  </span>
                 </div>
-                <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Overall Score</div>
+
+                <div>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-primary)' }}>
+                    Grade: {result.overall_grade}
+                  </div>
+                  <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4 }}>
+                    {result.test_cases} test cases
+                    {result.topic_filter ? ` • ${result.topic_filter}` : ' • All topics'}
+                    {result.total_time_ms ? ` • ${(result.total_time_ms / 1000).toFixed(1)}s` : ''}
+                  </div>
+                </div>
               </div>
-              <div className={`grade-badge grade-${report.overall_grade}`} style={{ width: 64, height: 64, fontSize: 28 }}>
-                {report.overall_grade}
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <BarChart3 size={16} color="var(--text-muted)" />
+                <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                  {Object.keys(result.components || {}).length} components evaluated
+                </span>
               </div>
-            </div>
-            <div className="progress-bar" style={{ height: 8, marginBottom: 8 }}>
-              <div
-                className="progress-fill"
-                style={{
-                  width: `${report.overall_score || 0}%`,
-                  background: report.overall_score >= 70 ? 'var(--accent-green)' : report.overall_score >= 50 ? 'var(--accent-orange)' : 'var(--accent-red)',
-                }}
-              />
             </div>
           </div>
 
           {/* Component Results */}
-          {report.components && Object.entries(report.components).map(([name, comp]) => (
-            <ComponentResult key={name} name={name} data={comp} />
-          ))}
+          {result.components && Object.entries(result.components).map(([name, comp]) => (
+            <div key={name} className="card">
+              <button
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  width: '100%', background: 'none', border: 'none',
+                  color: 'var(--text-primary)', cursor: 'pointer',
+                  padding: 0, fontFamily: 'inherit',
+                }}
+                onClick={() => setExpandedComponent(expandedComponent === name ? null : name)}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <CheckCircle
+                    size={18}
+                    color={gradeColor(comp.overall_score)}
+                  />
+                  <span style={{ fontSize: 15, fontWeight: 600 }}>{name}</span>
+                  <span style={{
+                    fontSize: 13, fontWeight: 600,
+                    color: gradeColor(comp.overall_score),
+                  }}>
+                    {comp.overall_score?.toFixed(1)}%
+                  </span>
+                </div>
+                {expandedComponent === name
+                  ? <ChevronUp size={16} color="var(--text-muted)" />
+                  : <ChevronDown size={16} color="var(--text-muted)" />
+                }
+              </button>
 
-          {/* Download */}
-          <div style={{ display: 'flex', justifyContent: 'center' }}>
-            <button className="btn btn-secondary" onClick={downloadReport}>
-              <Download size={16} /> Download Report (JSON)
-            </button>
-          </div>
+              {expandedComponent === name && (
+                <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {/* Metrics grid */}
+                  {comp.metrics && comp.metrics.length > 0 && (
+                    <div style={{
+                      display: 'grid',
+                      gridTemplateColumns: `repeat(${Math.min(comp.metrics.length, 4)}, 1fr)`,
+                      gap: 12,
+                    }}>
+                      {comp.metrics.map((metric, i) => (
+                        <div key={i} style={{
+                          padding: 12,
+                          borderRadius: 'var(--radius-sm)',
+                          background: 'var(--bg-tertiary)',
+                        }}>
+                          <div style={{
+                            fontSize: 11, color: 'var(--text-muted)',
+                            textTransform: 'uppercase', letterSpacing: 0.5,
+                            marginBottom: 6,
+                          }}>
+                            {metric.name}
+                          </div>
+                          <div style={{
+                            fontSize: 20, fontWeight: 700,
+                            color: gradeColor(metric.percentage),
+                          }}>
+                            {metric.percentage?.toFixed(1)}%
+                          </div>
+                          {metric.details && (
+                            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                              {metric.details}
+                            </div>
+                          )}
+                          {/* Progress bar */}
+                          <div style={{
+                            height: 4, borderRadius: 2,
+                            background: 'var(--bg-hover)',
+                            marginTop: 8, overflow: 'hidden',
+                          }}>
+                            <div style={{
+                              height: '100%', borderRadius: 2,
+                              background: gradeColor(metric.percentage),
+                              width: `${Math.min(metric.percentage, 100)}%`,
+                              transition: 'width 0.6s ease',
+                            }} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Errors */}
+                  {comp.errors && comp.errors.length > 0 && (
+                    <div style={{
+                      padding: 12,
+                      borderRadius: 'var(--radius-sm)',
+                      background: 'var(--accent-red-bg)',
+                      border: '1px solid rgba(239, 68, 68, 0.2)',
+                    }}>
+                      <div style={{
+                        fontSize: 12, fontWeight: 600,
+                        color: 'var(--accent-red)', marginBottom: 6,
+                      }}>
+                        ⚠️ {comp.errors.length} error(s)
+                      </div>
+                      {comp.errors.slice(0, 5).map((err, i) => (
+                        <div key={i} style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                          ❌ {err}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
         </div>
       )}
     </div>
   );
 }
 
-function ComponentResult({ name, data }) {
-  const [expanded, setExpanded] = useState(false);
-
+function CheckboxToggle({ label, checked, onChange }) {
   return (
-    <div className="card">
-      <div
-        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
-        onClick={() => setExpanded(!expanded)}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <BarChart3 size={18} color="var(--accent-blue)" />
-          <span style={{ fontWeight: 600 }}>{name}</span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span style={{
-            fontSize: 18, fontWeight: 700,
-            color: data.score >= 70 ? 'var(--accent-green)' : data.score >= 50 ? 'var(--accent-orange)' : 'var(--accent-red)',
-          }}>
-            {data.score?.toFixed(1)}%
-          </span>
-        </div>
-      </div>
-
-      {expanded && data.metrics && (
-        <div style={{ marginTop: 16 }}>
-          <div className="metric-grid">
-            {data.metrics.map((metric, i) => (
-              <div key={i} className="metric-card">
-                <div className="metric-value" style={{
-                  fontSize: 20,
-                  background: 'none',
-                  WebkitTextFillColor: metric.percentage >= 70 ? 'var(--accent-green)' : metric.percentage >= 50 ? 'var(--accent-orange)' : 'var(--accent-red)',
-                  color: metric.percentage >= 70 ? 'var(--accent-green)' : metric.percentage >= 50 ? 'var(--accent-orange)' : 'var(--accent-red)',
-                }}>
-                  {metric.percentage?.toFixed(1)}%
-                </div>
-                <div className="metric-label">{metric.name}</div>
-              </div>
-            ))}
-          </div>
-
-          {data.errors && data.errors.length > 0 && (
-            <div style={{ marginTop: 16 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--accent-orange)', marginBottom: 8 }}>
-                <AlertTriangle size={14} />
-                <span style={{ fontSize: 13, fontWeight: 500 }}>{data.errors.length} errors</span>
-              </div>
-              {data.errors.slice(0, 5).map((err, i) => (
-                <p key={i} style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>
-                  {err}
-                </p>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
+    <label style={{
+      display: 'flex', alignItems: 'center', gap: 8,
+      cursor: 'pointer', fontSize: 14, color: 'var(--text-secondary)',
+    }}>
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        style={{ accentColor: 'var(--accent-blue)' }}
+      />
+      {label}
+    </label>
   );
 }

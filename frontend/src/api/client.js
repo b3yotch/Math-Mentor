@@ -1,6 +1,6 @@
 /**
  * API Client for Math Mentor FastAPI backend.
- * Includes per-user tracking and file upload support.
+ * Includes per-user tracking, file upload, and HITL extraction support.
  */
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
@@ -61,8 +61,12 @@ class ApiClient {
     return this.request('/health');
   }
 
-  // Solve text
-  async solve(question, topK = 3, includeEvaluation = true) {
+  // Solve text (also used for HITL-edited image/audio extractions)
+  async solve(question, topK = 3, includeEvaluation = true, {
+    inputType = 'text',
+    confidence = 1.0,
+    wasHumanEdited = false,
+  } = {}) {
     return this.request('/solve', {
       method: 'POST',
       body: JSON.stringify({
@@ -70,12 +74,14 @@ class ApiClient {
         top_k: topK,
         include_evaluation: includeEvaluation,
         user_id: this.userId,
-        input_type: 'text',
+        input_type: inputType,
+        confidence,
+        was_human_edited: wasHumanEdited,
       }),
     });
   }
 
-  // Solve from image
+  // Solve from image (direct, no HITL)
   async solveImage(file, topK = 3, includeEvaluation = true) {
     const formData = new FormData();
     formData.append('file', file);
@@ -85,12 +91,12 @@ class ApiClient {
 
     return this.request('/solve/image', {
       method: 'POST',
-      headers: {},  // Let browser set content-type with boundary
+      headers: {},
       body: formData,
     });
   }
 
-  // Solve from audio
+  // Solve from audio (direct, no HITL)
   async solveAudio(file, topK = 3, includeEvaluation = true) {
     const formData = new FormData();
     formData.append('file', file);
@@ -105,12 +111,24 @@ class ApiClient {
     });
   }
 
-  // Extract text from image (for HITL preview)
+  // Extract text from image (for HITL preview — step 1)
   async extractImage(file) {
     const formData = new FormData();
     formData.append('file', file);
 
     return this.request('/solve/extract/image', {
+      method: 'POST',
+      headers: {},
+      body: formData,
+    });
+  }
+
+  // Extract text from audio (for HITL preview — step 1)
+  async extractAudio(file) {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    return this.request('/solve/extract/audio', {
       method: 'POST',
       headers: {},
       body: formData,
