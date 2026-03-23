@@ -29,23 +29,6 @@ and continuous learning from user feedback.
 | 🧠 **Memory System** | Learns from user corrections & feedback |
 | 🐳 **Dockerised** | Single-command deployment with Docker Compose |
 
----
-
-## 📋 Table of Contents
-
-- [Features](#-features)
-- [Architecture](#-architecture)
-- [Tech Stack](#-tech-stack)
-- [Project Structure](#-project-structure)
-- [Installation](#-installation)
-- [Configuration](#-configuration)
-- [Usage](#-usage)
-- [Modules](#-modules)
-- [API Reference](#-api-reference)
-- [Deployment](#-deployment)
-- [Contributing](#-contributing)
-- [License](#-license)
-- [Acknowledgments](#-acknowledgments)
 
 ---
 
@@ -141,7 +124,7 @@ Algebra (Quadratics, Polynomials, Logs) · Calculus (Limits, Derivatives, Integr
 │  └────────────────────────────────────────────────────────┘   │
 └──────────────────────────────────────────────────────────────┘
 ```
-### System Flow
+## System Flow
 
 1. User submits problem (text / image / audio)
 2. OCR / ASR extracts text (if applicable)
@@ -156,7 +139,7 @@ Algebra (Quadratics, Polynomials, Logs) · Calculus (Limits, Derivatives, Integr
 
 ## ⚙️ Tech Stack
 
-| Layer              | Technology                                   |
+| Layer              | Technology                                    |
 |--------------------|----------------------------------------------|
 | Frontend           | React 18, Vite, CSS                          |
 | Backend            | Python 3.11, FastAPI, Uvicorn                |
@@ -170,7 +153,6 @@ Algebra (Quadratics, Polynomials, Logs) · Calculus (Limits, Derivatives, Integr
 | Containerisation   | Docker, Docker Compose                       |
 | Registry           | Docker Hub                                   |
 | Hosting            | AWS EC2                                      |
-
 
 ### Project Structure
 
