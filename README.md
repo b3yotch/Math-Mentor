@@ -13,8 +13,6 @@ Math Mentor is a **full-stack intelligent tutoring system** designed to solve
 JEE-level mathematics problems with step-by-step reasoning, verification,
 and continuous learning from user feedback.
 
-> **Live Demo:** `http://<your-ec2-ip>` · **API Docs:** `http://<your-ec2-ip>/api/docs`
-
 ---
 
 ## 📌 Key Highlights
