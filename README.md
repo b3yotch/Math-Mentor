@@ -154,8 +154,8 @@ Algebra (Quadratics, Polynomials, Logs) · Calculus (Limits, Derivatives, Integr
 | Registry           | Docker Hub                                   |
 | Hosting            | AWS EC2                                      |
 
-### Project Structure
-
+## Project Structure
+```
 math-mentor/
 │
 ├── docker-compose.yml          # Local development orchestration
@@ -236,7 +236,7 @@ math-mentor/
     │   ├── faiss.index
     │   └── documents.json
     └── math_mentor.db          # SQLite database
-
+```
 
 
 ## 📦 Modules
