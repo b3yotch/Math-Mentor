@@ -31,6 +31,7 @@ app = FastAPI(
     title="Math Mentor API",
     description="AI-Powered JEE Math Tutor with RAG, Guardrails, HITL, and Evaluation",
     version="1.0.0",
+    root_path="/api",          # ← ADD THIS
     docs_url="/docs",
     redoc_url="/redoc",
 )

@@ -1,0 +1,87 @@
+# ============================================================
+# Math Mentor — Full Stack
+#
+# Usage:
+#   docker compose up --build
+#   docker compose up -d
+#   docker compose down
+#   docker compose logs -f backend
+# ============================================================
+
+services:
+  # ── Backend (FastAPI + ML) ────────────────────────────────
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: math-mentor-backend
+    restart: unless-stopped
+
+    environment:
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - PORT=8000
+      - WORKERS=2
+      - LOG_LEVEL=info
+      - PYTHONPATH=/app
+
+    volumes:
+      - backend_data:/app/data/memory
+      - backend_logs:/app/data/logs
+
+    expose:
+      - "8000"
+
+    # Uncomment for local debugging:
+    # ports:
+    #   - "8000:8000"
+
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: "1.0"
+        reservations:
+          memory: 512M
+          cpus: "0.25"
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+
+  # ── Frontend (React + Nginx) ──────────────────────────────
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        VITE_API_URL: /api
+    container_name: math-mentor-frontend
+    restart: unless-stopped
+
+    ports:
+      - "80:80"
+
+    depends_on:
+      backend:
+        condition: service_healthy
+
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: "0.25"
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  backend_data:
+    name: math-mentor-data
+  backend_logs:
+    name: math-mentor-logs

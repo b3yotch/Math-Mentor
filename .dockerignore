@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+venv/
+.venv/
+env/
+
+# Node — exclude node_modules but KEEP package-lock.json
+frontend/node_modules/
+frontend/.vite/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Git
+.git/
+
+# Docker (don't send Dockerfiles into build context)
+docker-compose*.yml
+
+# Environment (secrets)
+.env
+.env.*
+
+# Logs and temp files
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
+
+# Test files
+test_*.py
+
+# Large model files that aren't needed in frontend build
+*.pt
+*.bin
+*.onnx
+*.pkl

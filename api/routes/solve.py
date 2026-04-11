@@ -18,13 +18,20 @@ from api.dependencies import get_components, ComponentManager
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/solve", tags=["Solve"])
 
+# Add near top of solve.py, after existing imports
+from src.agents.graph import MathMentorGraph
 
-# ============================================================
-# Input Pre-Sanitization (runs BEFORE guardrails)
-# ============================================================
-# ============================================================
-# Field Normalization — ensures all response fields are correct types
-# ============================================================
+_math_graph: Optional[MathMentorGraph] = None
+
+
+def _get_graph(components) -> MathMentorGraph:
+    """Lazy-initialise the LangGraph pipeline."""
+    global _math_graph
+    if _math_graph is None:
+        _math_graph = MathMentorGraph(components.groq_client)
+        logger.info("LangGraph hybrid pipeline initialised")
+    return _math_graph
+
 
 def _to_string(value) -> str:
     """Convert any value to a string safely."""
@@ -647,26 +654,34 @@ def _run_pipeline(
         logger.warning("Memory lookup failed: %s", e)
         similar = []
 
-    # Step 6: LLM Solve
-    solution = _solve_with_llm(components, normalized, rag_results, similar)
-    pipeline_steps.append("llm_solve")
-
-    if solution.get("error"):
-        return SolveResponse(
-            status="error",
-            question=question,
-            input_type=input_type,
-            error=str(solution["error"]),
-            pipeline_steps=pipeline_steps,
-            latency_ms=round((time.time() - start_time) * 1000, 1),
-            confidence=confidence,
+    
+    # Step 6: LangGraph Adaptive Solve
+    try:
+        graph = _get_graph(components)
+        solution = graph.solve(
+            question=normalized,
+            rag_context=rag_results,
+            similar_problems=similar,
         )
 
-    # ══════════════════════════════════════════════════════════
-    # SAFETY NET: Ensure all solution fields are correct types
-    # before building SolveResponse (prevents Pydantic errors)
-    # ══════════════════════════════════════════════════════════
-    solution = _normalize_llm_result(solution)
+        # Extract pipeline metadata
+        graph_nodes = solution.pop("nodes_executed", [])
+        difficulty = solution.get("difficulty", "unknown")
+        pipeline_steps.append(f"langgraph({difficulty})")
+        pipeline_steps.extend(graph_nodes)
+
+        # Update topic if classifier detected one
+        if solution.get("detected_topic") and solution["detected_topic"] != "general":
+            topic = solution["detected_topic"]
+
+        logger.info(
+            "Solved '%s...' via %s path (%d nodes)",
+            normalized[:50], difficulty, len(graph_nodes),
+        )
+    except Exception as e:
+        logger.error("LangGraph failed, falling back to direct LLM: %s", e)
+        solution = _solve_with_llm(components, normalized, rag_results, similar)
+        pipeline_steps.append("llm_solve_fallback")
 
     # Step 7: Output guardrails
     try:

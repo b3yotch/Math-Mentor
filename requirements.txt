@@ -19,3 +19,5 @@ pydantic>=2.5.0
 python-multipart>=0.0.6
 torch>=2.0.0
 httpx>=0.25.0
+langgraph>=0.2.0
+crewai
