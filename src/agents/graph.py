@@ -168,23 +168,148 @@ class MathMentorGraph:
 
     @staticmethod
     def _parse_json(text: str) -> dict:
+        """
+        Robustly extract JSON from LLM response.
+        
+        Handles the critical case where LaTeX backslashes (\frac, \sqrt,
+        \pi, \int, \sin, etc.) corrupt JSON parsing because \f, \n, \t, \b
+        are valid JSON escape sequences.
+        """
         if not text:
             return {}
-        try:
-            if "```json" in text:
-                text = text.split("```json")[1].split("```")[0]
-            elif "```" in text:
-                text = text.split("```")[1].split("```")[0]
-            return json.loads(text.strip())
-        except json.JSONDecodeError:
-            match = re.search(r"\{[\s\S]*\}", text)
-            if match:
-                try:
-                    return json.loads(match.group())
-                except json.JSONDecodeError:
-                    pass
-            return {}
 
+        # Step 1: Strip markdown code fences
+        cleaned = text
+        if "```json" in cleaned:
+            cleaned = cleaned.split("```json")[1].split("```")[0]
+        elif "```" in cleaned:
+            cleaned = cleaned.split("```")[1].split("```")[0]
+        cleaned = cleaned.strip()
+
+        # Step 2: Try direct parse first (fast path)
+        try:
+            return json.loads(cleaned)
+        except json.JSONDecodeError:
+            pass
+
+        # Step 3: Fix LaTeX backslashes that break JSON
+        # \f (form feed), \b (backspace), \t (tab), \n (newline),
+        # \r (carriage return) are valid JSON escapes.
+        # But in LaTeX: \frac, \binom, \theta, \neq, \right are NOT
+        # meant as JSON escapes. Fix them by double-escaping.
+        latex_commands = [
+            # \f... commands (form feed collision)
+            r'\\frac', r'\\forall',
+            # \b... commands (backspace collision)
+            r'\\binom', r'\\beta', r'\\begin', r'\\bar', r'\\bf',
+            r'\\boxed', r'\\big', r'\\Big',
+            # \t... commands (tab collision)
+            r'\\theta', r'\\tan', r'\\text', r'\\times', r'\\to',
+            r'\\triangle', r'\\therefore',
+            # \n... commands (newline collision)
+            r'\\neq', r'\\not', r'\\nu', r'\\nabla', r'\\nfrac',
+            r'\\newline', r'\\neg',
+            # \r... commands (carriage return collision)
+            r'\\right', r'\\rangle', r'\\rho', r'\\rightarrow',
+            r'\\Rightarrow', r'\\rceil',
+            # Other common LaTeX (safe but handle for completeness)
+            r'\\sqrt', r'\\sum', r'\\sin', r'\\cos', r'\\log',
+            r'\\ln', r'\\lim', r'\\int', r'\\infty', r'\\pi',
+            r'\\alpha', r'\\gamma', r'\\delta', r'\\epsilon',
+            r'\\lambda', r'\\mu', r'\\sigma', r'\\omega', r'\\phi',
+            r'\\partial', r'\\cdot', r'\\ldots', r'\\geq', r'\\leq',
+            r'\\pm', r'\\mp', r'\\div', r'\\approx', r'\\equiv',
+            r'\\left', r'\\langle', r'\\lceil', r'\\lfloor',
+            r'\\rfloor', r'\\mathrm', r'\\mathbf', r'\\overline',
+            r'\\underline', r'\\hat', r'\\vec', r'\\dot',
+        ]
+
+        fixed = cleaned
+        for cmd in latex_commands:
+            # cmd is like r'\\frac' — we want to find \frac in the text
+            # and ensure it becomes \\frac in JSON (double escaped)
+            plain = cmd[1:]  # e.g., r'\frac'
+            escaped = cmd     # e.g., r'\\frac'
+            # Only fix if it's a single backslash (not already double)
+            fixed = fixed.replace(plain, escaped)
+
+        # Also fix any remaining single backslashes before letters
+        # that aren't valid JSON escapes (\", \\, \/, \b, \f, \n, \r, \t, \u)
+        fixed = re.sub(
+            r'\\(?!["\\/bfnrtu\\])',
+            r'\\\\',
+            fixed,
+        )
+
+        try:
+            return json.loads(fixed)
+        except json.JSONDecodeError:
+            pass
+
+        # Step 4: Try to extract JSON object from text
+        match = re.search(r"\{[\s\S]*\}", cleaned)
+        if match:
+            extracted = match.group()
+            # Apply same LaTeX fix to extracted
+            for cmd in latex_commands:
+                plain = cmd[1:]
+                extracted = extracted.replace(plain, cmd)
+            extracted = re.sub(
+                r'\\(?!["\\/bfnrtu\\])',
+                r'\\\\',
+                extracted,
+            )
+            try:
+                return json.loads(extracted)
+            except json.JSONDecodeError:
+                pass
+
+        # Step 5: Last resort — try to extract key-value pairs manually
+        result = {}
+        for field in ["explanation", "verification", "final_answer",
+                       "verification_summary", "verification_method"]:
+            pattern = rf'"{field}"\s*:\s*"((?:[^"\\]|\\.){{0,5000}})"'
+            m = re.search(pattern, cleaned, re.DOTALL)
+            if m:
+                value = m.group(1)
+                # Unescape JSON escapes
+                value = value.replace('\\"', '"')
+                value = value.replace('\\n', '\n')
+                value = value.replace('\\\\', '\\')
+                result[field] = value
+
+        # Extract arrays
+        for field in ["key_concepts", "common_mistakes", "solution_steps",
+                       "issues", "edge_cases_checked"]:
+            pattern = rf'"{field}"\s*:\s*$$([\s\S]*?)$$'
+            m = re.search(pattern, cleaned)
+            if m:
+                items = re.findall(r'"((?:[^"\\]|\\.)*)"', m.group(1))
+                result[field] = items
+
+        # Extract booleans
+        for field in ["is_correct"]:
+            pattern = rf'"{field}"\s*:\s*(true|false)'
+            m = re.search(pattern, cleaned, re.IGNORECASE)
+            if m:
+                result[field] = m.group(1).lower() == 'true'
+
+        # Extract numbers
+        for field in ["confidence"]:
+            pattern = rf'"{field}"\s*:\s*([\d.]+)'
+            m = re.search(pattern, cleaned)
+            if m:
+                try:
+                    result[field] = float(m.group(1))
+                except ValueError:
+                    pass
+
+        if result:
+            logger.info(
+                "Extracted %d fields via regex fallback", len(result)
+            )
+
+        return result
     # ──────────────────────────────
     # NODE: Classify Difficulty (Hybrid: Rules + LLM)
     # ──────────────────────────────
@@ -273,19 +398,11 @@ class MathMentorGraph:
     # ──────────────────────────────
 
     def fast_solve(self, state: MathState) -> dict:
-        """
-        Single comprehensive LLM call for simple/medium problems.
-        
-        This preserves your current system's latency for 80% of queries.
-        The prompt is tuned based on difficulty:
-        - Simple: concise, minimal explanation
-        - Medium: thorough, full explanation
-        """
         question = state["question"]
         difficulty = state.get("difficulty", "medium")
         topic = state.get("detected_topic", "general")
 
-        # Build context from RAG and memory
+        # Build context
         context_parts = []
         if state.get("rag_context"):
             rag_text = "\n".join(
@@ -300,29 +417,35 @@ class MathMentorGraph:
                 f"{str(p.get('solution',''))[:150]}"
                 for p in state["similar_problems"][:2]
             )
-            context_parts.append(f"Similar solved problems:\n{sim_text}")
+            context_parts.append(f"Similar problems:\n{sim_text}")
 
         context = "\n\n".join(context_parts) or "No additional context."
 
-        # Tune prompt by difficulty
+        # ═══════════════════════════════════════════════════════
+        # KEY FIX: Constrain step count and ban self-correction
+        # ═══════════════════════════════════════════════════════
         if difficulty == "simple":
-            detail = (
-                "Be concise. Show only essential steps. "
-                "Brief verification and explanation."
-            )
-            max_tokens = 1500
+            step_constraint = "Use 2-4 steps MAXIMUM."
+            max_tokens = 1200
         else:
-            detail = (
-                "Be thorough. Show all steps with reasoning. "
-                "Explain why each step works. "
-                "Include verification by substitution."
-            )
+            step_constraint = "Use 4-8 steps MAXIMUM. Never exceed 10."
             max_tokens = 2500
 
         system = (
             f"You are an expert JEE Mathematics tutor.\n"
-            f"Problem topic: {topic}. Difficulty: {difficulty}.\n"
-            f"Instructions: {detail}\n\n"
+            f"Topic: {topic}. Difficulty: {difficulty}.\n\n"
+            "CRITICAL RULES:\n"
+            f"1. {step_constraint}\n"
+            "2. PLAN your solution BEFORE writing. Do NOT backtrack.\n"
+            "3. Each step must move FORWARD. Never write 'wait' or "
+            "'actually' or 'let me reconsider'.\n"
+            "4. If you find an error, restart cleanly — do NOT show "
+            "the wrong work.\n"
+            "5. Every step must have exactly ONE clear action.\n"
+            "6. Use the RAG context formulas when directly applicable.\n\n"           
+            "7. Use LaTeX notation for math: $x^2$, $\\frac{a}{b}$, "
+            "$\\sqrt{x}$, $\\int_0^1 f(x)dx$, $\\sum_{i=1}^{n}$\n"
+            "8. Wrap ALL mathematical expressions in $ delimiters.\n"
             "Return ONLY valid JSON:\n"
             "{\n"
             '  "parsed_problem": {\n'
@@ -330,18 +453,24 @@ class MathMentorGraph:
             '    "what_to_find": "what to find",\n'
             '    "given": "given information"\n'
             '  },\n'
-            '  "solution_steps": ["Step 1: ...", "Step 2: ..."],\n'
-            '  "final_answer": "answer as a string",\n'
-            '  "verification": "how to verify (string)",\n'
-            '  "explanation": "student-friendly explanation (string)",\n'
+            '  "solution_steps": [\n'
+            '    "Step 1: [Action] — [Result]",\n'
+            '    "Step 2: [Action] — [Result]"\n'
+            '  ],\n'
+            '  "final_answer": "answer as string",\n'
+            '  "verification": "substitute answer back to verify",\n'
+            '  "explanation": "student-friendly explanation",\n'
             '  "key_concepts": ["concept1"],\n'
-            '  "common_mistakes": ["mistake1"]\n'
+            '  "common_mistakes": ["mistake1"],\n'
+            '  "rag_formulas_used": ["formula from context if used"]\n'
             "}\n\n"
-            "RULES:\n"
-            "- final_answer must be a simple string\n"
-            "- verification must be a simple string\n"
-            "- solution_steps must be a list of strings\n"
-            "- Return ONLY valid JSON"
+            "BANNED PHRASES (never use these):\n"
+            "- 'Wait, let me reconsider'\n"
+            "- 'Actually, I made an error'\n"
+            "- 'Let me recalculate'\n"
+            "- 'On second thought'\n"
+            "- 'I need to correct'\n\n"
+            "Return ONLY valid JSON."
         )
 
         user = f"Solve: {question}\n\nContext:\n{context}"
@@ -368,6 +497,17 @@ class MathMentorGraph:
         if isinstance(steps, str):
             steps = [steps]
 
+        # ═══════════════════════════════════════════════════
+        # SAFETY: Truncate if LLM ignored step limit
+        # ═══════════════════════════════════════════════════
+        max_steps = 5 if difficulty == "simple" else 10
+        if len(steps) > max_steps:
+            logger.warning(
+                "LLM returned %d steps, truncating to %d",
+                len(steps), max_steps,
+            )
+            steps = steps[:max_steps]
+
         answer = str(result.get("final_answer", ""))
         solution_text = "\n".join(
             f"{i+1}. {s}" if not s.startswith("Step") else s
@@ -385,7 +525,6 @@ class MathMentorGraph:
             "common_mistakes": result.get("common_mistakes", []),
             "nodes_executed": nodes,
         }
-
     # ──────────────────────────────
     # NODE: Parse Problem (complex only)
     # ──────────────────────────────
@@ -490,12 +629,7 @@ class MathMentorGraph:
     # ──────────────────────────────
 
     def deep_solve(self, state: MathState) -> dict:
-        """
-        Agent 3 (complex path): Rigorous step-by-step solving.
-        Has full context from parser and strategist.
-        """
         context_parts = []
-
         if state.get("parsed_problem"):
             context_parts.append(
                 f"Problem structure:\n"
@@ -519,34 +653,43 @@ class MathMentorGraph:
                 f"{str(p.get('solution',''))[:200]}"
                 for p in state["similar_problems"][:2]
             )
-            context_parts.append(f"Similar solved problems:\n{sim_text}")
+            context_parts.append(f"Similar solved:\n{sim_text}")
 
-        context = "\n\n".join(context_parts) or "No additional context."
+        context = "\n\n".join(context_parts) or "No context."
 
+        # ═══════════════════════════════════════════════════
+        # KEY FIX: Structured solving with step limit
+        # ═══════════════════════════════════════════════════
         system = (
-            "You are an expert JEE math solver handling a COMPLEX problem.\n"
-            "You have been given a detailed problem analysis and strategy.\n"
-            "Follow the strategy closely.\n\n"
+            "You are an expert JEE math solver on a COMPLEX problem.\n"
+            "You have a detailed analysis and strategy. Follow it.\n\n"
+            "CRITICAL RULES:\n"
+            "1. Use 6-12 steps MAXIMUM. Never exceed 15.\n"
+            "2. PLAN completely before writing. NO backtracking.\n"
+            "3. Each step: ONE clear action → ONE clear result.\n"
+            "4. Reference the strategy's recommended formulas.\n"
+            "5. Use RAG context formulas when directly applicable.\n"
+            "6. NEVER self-correct mid-solution. If unsure, pick ,\n"
+            "7. Use LaTeX notation for math: $x^2$, $\\frac{a}{b}$, "
+            "$\\sqrt{x}$, $\\int_0^1 f(x)dx$, $\\sum_{i=1}^{n}$\n"
+            "8. Wrap ALL mathematical expressions in $ delimiters.\n"
+            "the most likely path and commit.\n\n"
             "Return ONLY valid JSON:\n"
             "{\n"
             '  "solution_steps": [\n'
-            '    "Step 1: [description] ...",\n'
-            '    "Step 2: [description] ..."\n'
+            '    "Step 1: [Action] — [Result]",\n'
+            '    "Step 2: [Action] — [Result]"\n'
             '  ],\n'
-            '  "final_answer": "precise final answer as string",\n'
+            '  "final_answer": "precise answer as string",\n'
             '  "method_used": "method name",\n'
-            '  "intermediate_results": {\n'
-            '    "key_calculation_1": "result"\n'
-            '  }\n'
+            '  "rag_formulas_used": ["formula if used"]\n'
             "}\n\n"
-            "RULES:\n"
-            "- Show EVERY step — no skipping\n"
-            "- Justify each algebraic manipulation\n"
-            "- State any assumptions made\n"
-            "- Return ONLY valid JSON"
+            "BANNED: 'actually', 'wait', 'let me reconsider', "
+            "'I made an error', 'on second thought'\n"
+            "Return ONLY valid JSON."
         )
 
-        user = f"Solve this complex problem:\n{state['question']}\n\n{context}"
+        user = f"Solve:\n{state['question']}\n\n{context}"
         content = self._llm_call(system, user, max_tokens=3500)
         result = self._parse_json(content)
 
@@ -565,6 +708,13 @@ class MathMentorGraph:
         if isinstance(steps, str):
             steps = [steps]
 
+        # Safety truncation
+        if len(steps) > 15:
+            logger.warning(
+                "Deep solve: %d steps, truncating to 15", len(steps)
+            )
+            steps = steps[:15]
+
         answer = str(result.get("final_answer", ""))
         solution_text = "\n".join(
             f"{i+1}. {s}" if not s.startswith("Step") else s
@@ -577,7 +727,6 @@ class MathMentorGraph:
             "solution": f"{solution_text}\n\nFinal Answer: {answer}",
             "nodes_executed": nodes,
         }
-
     # ──────────────────────────────
     # NODE: Verify (complex only)
     # ──────────────────────────────
@@ -730,6 +879,47 @@ class MathMentorGraph:
     # ──────────────────────────────
     # Routing
     # ──────────────────────────────
+    # Add this method to MathMentorGraph class
+
+    @staticmethod
+    def _enhance_with_rag(solution: dict, rag_context: list) -> dict:
+        """
+        Post-process: If RAG had relevant content but solver didn't
+        cite it, append a 'Relevant Formulas' section.
+        """
+        if not rag_context:
+            return solution
+
+        # Check if solver already cited RAG
+        rag_used = solution.get("rag_formulas_used", [])
+        if rag_used:
+            # Solver cited RAG — add to explanation
+            citation = "\n\n📚 Formulas Used (from knowledge base):\n"
+            citation += "\n".join(f"  • {f}" for f in rag_used)
+            solution["explanation"] = (
+                solution.get("explanation", "") + citation
+            )
+            return solution
+
+        # Solver didn't cite RAG — append relevant formulas anyway
+        high_score = [
+            r for r in rag_context
+            if float(r.get("score", 0)) > 0.4
+        ]
+
+        if high_score:
+            citation = "\n\n📚 Related Formulas (from knowledge base):\n"
+            for r in high_score[:3]:
+                topic = r.get("subtopic", r.get("topic", ""))
+                content = str(r.get("content", ""))[:200]
+                score = float(r.get("score", 0))
+                citation += f"  • [{topic}] {content} (relevance: {score:.0%})\n"
+
+            solution["explanation"] = (
+                solution.get("explanation", "") + citation
+            )
+
+        return solution
 
     @staticmethod
     def _after_classify(state: MathState) -> str:
@@ -820,16 +1010,9 @@ class MathMentorGraph:
         rag_context: list = None,
         similar_problems: list = None,
     ) -> Dict[str, Any]:
-        """
-        Solve a math problem using the adaptive pipeline.
-        Returns dict compatible with existing solve.py interface.
-        """
         truncated = question
         if len(question) > 1500:
             truncated = question[:1500] + "\n\n[Truncated]"
-            logger.info(
-                "Truncated question from %d to 1500 chars", len(question)
-            )
 
         initial_state: MathState = {
             "question": truncated,
@@ -846,11 +1029,11 @@ class MathMentorGraph:
             classify_method = final.get("classification_method", "unknown")
 
             logger.info(
-                "Pipeline complete: %s (%s classify), nodes: %s",
+                "Pipeline: %s (%s), nodes: %s",
                 difficulty, classify_method, " → ".join(nodes),
             )
 
-            return {
+            result = {
                 "parsed_problem": final.get("parsed_problem", {}),
                 "solution_steps": final.get("solution_steps", []),
                 "solution": final.get("solution", ""),
@@ -862,6 +1045,13 @@ class MathMentorGraph:
                 "difficulty": difficulty,
                 "nodes_executed": nodes,
             }
+
+            # ═══════════════════════════════════
+            # Enhance with RAG citations
+            # ═══════════════════════════════════
+            result = self._enhance_with_rag(result, rag_context or [])
+
+            return result
 
         except Exception as e:
             logger.error("LangGraph failed: %s", e, exc_info=True)

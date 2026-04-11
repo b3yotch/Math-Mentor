@@ -23,6 +23,49 @@ from src.agents.graph import MathMentorGraph
 
 _math_graph: Optional[MathMentorGraph] = None
 
+def _safe_parse_json(content: str) -> dict:
+    """Parse JSON from LLM output, handling LaTeX backslash collisions."""
+    if not content:
+        return {}
+
+    # Strip code fences
+    cleaned = content
+    if "```json" in cleaned:
+        cleaned = cleaned.split("```json")[1].split("```")[0]
+    elif "```" in cleaned:
+        cleaned = cleaned.split("```")[1].split("```")[0]
+    cleaned = cleaned.strip()
+
+    # Try direct parse
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        pass
+
+    # Fix LaTeX backslashes that collide with JSON escapes
+    # \f (formfeed), \b (backspace), \t (tab), \n (newline), \r (return)
+    # But in LaTeX: \frac, \beta, \theta, \neq, \right
+    fixed = re.sub(
+        r'\\(?!["\\/bfnrtu\\])',
+        r'\\\\',
+        cleaned,
+    )
+    try:
+        return json.loads(fixed)
+    except json.JSONDecodeError:
+        pass
+
+    # Extract JSON object
+    match = re.search(r"\{[\s\S]*\}", cleaned)
+    if match:
+        extracted = re.sub(r'\\(?!["\\/bfnrtu\\])', r'\\\\', match.group())
+        try:
+            return json.loads(extracted)
+        except json.JSONDecodeError:
+            pass
+
+    return {}
+
 
 def _get_graph(components) -> MathMentorGraph:
     """Lazy-initialise the LangGraph pipeline."""
@@ -479,12 +522,9 @@ def _solve_with_llm(components, question, rag_context, similar_problems=None):
         content = response.choices[0].message.content
 
         try:
-            if "```json" in content:
-                content = content.split("```json")[1].split("```")[0]
-            elif "```" in content:
-                content = content.split("```")[1].split("```")[0]
-
-            result = json.loads(content)
+            result = _safe_parse_json(content)
+            if not result:
+                raise json.JSONDecodeError("Empty result", "", 0)
 
             # ══════════════════════════════════════════════
             # NORMALIZE — fix type mismatches from LLM
