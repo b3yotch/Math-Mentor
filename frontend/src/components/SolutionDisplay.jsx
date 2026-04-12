@@ -10,245 +10,237 @@ import 'katex/dist/katex.min.css';
 
 
 // ============================================================
-// Sanitize LLM Output — detect raw JSON, fix broken LaTeX
-// ============================================================
-
-function sanitizeForDisplay(text) {
-  if (!text || typeof text !== 'string') return text || '';
-
-  let cleaned = text.trim();
-
-  // Detect raw JSON
-  if (cleaned.startsWith('{') && cleaned.endsWith('}')) {
-    try {
-      const parsed = JSON.parse(cleaned);
-
-      const textField =
-        parsed.explanation ||
-        parsed.verification_summary ||
-        parsed.verification ||
-        parsed.final_answer ||
-        parsed.solution ||
-        '';
-
-      if (textField) {
-        cleaned = String(textField);
-
-        const extras = [];
-
-        if (parsed.intuition) {
-          extras.push(`\n\n💡 **Key Insight:** ${parsed.intuition}`);
-        }
-        if (parsed.exam_tip) {
-          extras.push(`\n\n📝 **JEE Tip:** ${parsed.exam_tip}`);
-        }
-        if (Array.isArray(parsed.key_concepts)) {
-          extras.push(
-            `\n\n**Key Concepts:**\n${parsed.key_concepts.map(c => `- ${c}`).join('\n')}`
-          );
-        }
-        if (Array.isArray(parsed.common_mistakes)) {
-          extras.push(
-            `\n\n**Common Mistakes:**\n${parsed.common_mistakes.map(m => `- ${m}`).join('\n')}`
-          );
-        }
-
-        cleaned += extras.join('');
-      }
-    } catch {
-      const expMatch = cleaned.match(/"explanation"\s*:\s*"((?:[^"\\]|\\.)*)"/);
-      if (expMatch) {
-        cleaned = expMatch[1]
-          .replace(/\\"/g, '"')
-          .replace(/\\n/g, '\n')
-          .replace(/\\\\/g, '\\');
-      }
-    }
-  }
-
-  // Fix LaTeX wrapping
-  if (!cleaned.includes('$')) {
-    if (/^\\(frac|sqrt|int|sum|prod|lim|begin|left|right)/.test(cleaned.trim())) {
-      cleaned = `\n$$\n${cleaned.trim()}\n$$\n`;
-    }
-  } else {
-    cleaned = fixNestedDollarSigns(cleaned);
-  }
-
-  return cleaned;
-}
-
-
-// ============================================================
-// Fix nested $ inside LaTeX
-// ============================================================
-
-function fixNestedDollarSigns(text) {
-  let result = text;
-
-  const parts = result.split('$');
-
-  for (let i = 0; i < parts.length; i += 2) {
-    parts[i] = parts[i].replace(
-      /(\\(?:frac|binom)\{[^}]*\}\{[^}]*\}|\\(?:sqrt|text|mathrm)\{[^}]*\})/g,
-      (match) => {
-        const clean = match.replace(/\$/g, '');
-        return `$$${clean}$$`;
-      }
-    );
-  }
-
-  result = parts.join('$');
-  result = result.replace(/\$\$\$/g, '$$');
-
-  return result;
-}
-
-
-// ============================================================
-// Preprocess Math
-// ============================================================
-
-function preprocessMath(text) {
-  if (!text) return text;
-
-  let result = text;
-
-  // Normalize delimiters
-  result = result.replace(/\\\(/g, '$');
-  result = result.replace(/\\\)/g, '$');
-  result = result.replace(/\\\[/g, '$$');
-  result = result.replace(/\\\]/g, '$$');
-
-  if (/\$/.test(result)) return result;
-
-  // Bare LaTeX
-  result = result.replace(
-    /(\\(?:frac|binom)\{[^}]*\}\{[^}]*\})/g,
-    (m) => `$$${m}$$`
-  );
-
-  result = result.replace(
-    /(\\(?:sqrt|text|mathrm|mathbf|overline|hat|vec|bar)\{[^}]*\})/g,
-    (m) => `$$${m}$$`
-  );
-
-  result = result.replace(
-    /(\\(?:int|sum|prod|lim)(?:_\{[^}]*\})?(?:\^\{[^}]*\})?)/g,
-    (m) => `$$${m}$$`
-  );
-
-  // Exponents
-  result = result.replace(
-    /([a-zA-Z0-9]+)\^([a-zA-Z0-9]+)/g,
-    '$$$1^{$2}$$'
-  );
-
-  // sqrt()
-  result = result.replace(
-    /sqrt\(([^)]+)\)/g,
-    (_, inner) => `$\\sqrt{${inner}}$`
-  );
-
-  // fractions
-  result = result.replace(
-    /(\d+)\s*\/\s*(\d+)/g,
-    (_, a, b) => `$\\frac{${a}}{${b}}$`
-  );
-
-  // symbols
-  result = result.replace(/\+-/g, '$\\pm$');
-  result = result.replace(/!=|≠/g, '$\\neq$');
-  result = result.replace(/>=|≥/g, '$\\geq$');
-  result = result.replace(/<=|≤/g, '$\\leq$');
-  result = result.replace(/∞/g, '$\\infty$');
-
-  return result;
-}
-
-
-// ============================================================
-// Markdown Renderer
+// Math-aware Markdown renderer
 // ============================================================
 
 function MathMarkdown({ children }) {
   if (!children) return null;
 
-  const sanitized = sanitizeForDisplay(String(children));
-  const processed = preprocessMath(sanitized);
-
   return (
     <ReactMarkdown
       remarkPlugins={[remarkMath]}
-      rehypePlugins={[[rehypeKatex, { throwOnError: false }]]}
+      rehypePlugins={[
+        [rehypeKatex, {
+          throwOnError: false,
+          strict: false,
+        }],
+      ]}
     >
-      {processed}
+      {String(children)}
     </ReactMarkdown>
   );
 }
 
 
 // ============================================================
-// MAIN COMPONENT
+// Main Component
 // ============================================================
 
 export default function SolutionDisplay({ result }) {
-  const [showAllSteps, setShowAllSteps] = useState(true);
+  const [showSolution, setShowSolution] = useState(true);
 
-  const steps = result.solution_steps || [];
+  const parsed = result.parsed_problem || {};
+  const solution = result.solution || '';
   const answer = result.final_answer || '';
   const verification = result.verification || '';
   const explanation = result.explanation || '';
   const topic = result.detected_topic || '';
   const fromCache = result.from_cache || false;
+  const cacheSimilarity = result.cache_similarity;
 
   return (
-    <div>
+    <div className="solution-container">
 
+      {/* Cache Hit Banner */}
       {fromCache && (
-        <div>
-          <Zap /> Cached Result
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 10,
+          padding: '10px 16px',
+          borderRadius: 'var(--radius-md)',
+          background: 'var(--accent-green-bg)',
+          border: '1px solid rgba(34, 197, 94, 0.25)',
+          marginBottom: 4,
+        }}>
+          <Zap size={18} color="var(--accent-green)" />
+          <div>
+            <span style={{
+              fontSize: 14, fontWeight: 600,
+              color: 'var(--accent-green)',
+            }}>
+              Instant Answer — Retrieved from Memory
+            </span>
+            <span style={{
+              fontSize: 12, color: 'var(--text-muted)', marginLeft: 8,
+            }}>
+              {cacheSimilarity !== null && cacheSimilarity !== undefined
+                ? `${(cacheSimilarity * 100).toFixed(0)}% match`
+                : 'Exact match'
+              }
+              {result.latency_ms > 0 && ` • ${result.latency_ms.toFixed(0)}ms`}
+            </span>
+          </div>
+          <Database size={14} color="var(--accent-green)" style={{ marginLeft: 'auto' }} />
         </div>
       )}
 
-      <h3><FileText /> Solution</h3>
-
-      {steps.map((step, i) => (
-        <div key={i} style={{ display: showAllSteps ? 'block' : 'none' }}>
-          <b>{i + 1}.</b>
-          <MathMarkdown>
-            {typeof step === 'string' ? step : step.content}
-          </MathMarkdown>
+      {/* Problem Understanding */}
+      {(parsed.type || parsed.what_to_find || parsed.given) && (
+        <div className="solution-section" style={{ borderLeft: '3px solid var(--accent-cyan)' }}>
+          <h3>
+            <Target size={18} color="var(--accent-cyan)" />
+            Problem Analysis
+          </h3>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
+            {parsed.type && (
+              <div>
+                <div style={{
+                  fontSize: 11, color: 'var(--text-muted)',
+                  textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4,
+                }}>Type</div>
+                <span className="badge badge-purple">{parsed.type}</span>
+              </div>
+            )}
+            {parsed.what_to_find && (
+              <div>
+                <div style={{
+                  fontSize: 11, color: 'var(--text-muted)',
+                  textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4,
+                }}>Find</div>
+                <div style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
+                  <MathMarkdown>{parsed.what_to_find}</MathMarkdown>
+                </div>
+              </div>
+            )}
+            {parsed.given && (
+              <div>
+                <div style={{
+                  fontSize: 11, color: 'var(--text-muted)',
+                  textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4,
+                }}>Given</div>
+                <div style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
+                  <MathMarkdown>{parsed.given}</MathMarkdown>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
-      ))}
+      )}
 
+      {/* ═══════════════════════════════════════════════════════
+          SOLUTION — Single flowing document with LaTeX
+          ═══════════════════════════════════════════════════════ */}
+      {solution && (
+        <div className="solution-section" style={{ borderLeft: '3px solid var(--accent-blue)' }}>
+          <div style={{
+            display: 'flex', justifyContent: 'space-between',
+            alignItems: 'center', marginBottom: 16,
+          }}>
+            <h3 style={{ margin: 0 }}>
+              <FileText size={18} color="var(--accent-blue)" />
+              Solution
+            </h3>
+            <button
+              onClick={() => setShowSolution(!showSolution)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 4,
+                background: 'none',
+                border: '1px solid var(--border-color)',
+                borderRadius: 6, padding: '4px 10px',
+                color: 'var(--text-secondary)',
+                cursor: 'pointer', fontSize: 12,
+              }}
+            >
+              {showSolution
+                ? <><ChevronUp size={14} /> Collapse</>
+                : <><ChevronDown size={14} /> Expand</>
+              }
+            </button>
+          </div>
+
+          {showSolution && (
+            <div style={{
+              fontSize: 15,
+              color: 'var(--text-secondary)',
+              lineHeight: 1.8,
+            }}>
+              <MathMarkdown>{solution}</MathMarkdown>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Final Answer */}
       {answer && (
-        <>
-          <h3><Award /> Final Answer</h3>
-          <MathMarkdown>{answer}</MathMarkdown>
-        </>
-      )}
-
-      {verification && (
-        <>
-          <h3><CheckCircle /> Verification</h3>
-          <MathMarkdown>{verification}</MathMarkdown>
-        </>
-      )}
-
-      {explanation && (
-        <>
-          <h3><Lightbulb /> Explanation</h3>
-          <MathMarkdown>{explanation}</MathMarkdown>
-        </>
-      )}
-
-      {topic && (
-        <div>
-          <BookOpen /> {topic}
+        <div className="solution-section" style={{
+          borderLeft: '3px solid var(--accent-green)',
+          background: 'var(--bg-tertiary)',
+        }}>
+          <h3>
+            <Award size={18} color="var(--accent-green)" />
+            Final Answer
+          </h3>
+          <div style={{
+            padding: 16, borderRadius: 8,
+            background: 'var(--bg-primary)',
+            border: '1px solid var(--accent-green)',
+            fontSize: 16, fontWeight: 600,
+            color: 'var(--text-primary)', lineHeight: 1.6,
+          }}>
+            <MathMarkdown>{answer}</MathMarkdown>
+          </div>
         </div>
       )}
 
+      {/* Verification */}
+      {verification && (
+        <div className="solution-section" style={{ borderLeft: '3px solid var(--accent-yellow, #f59e0b)' }}>
+          <h3>
+            <CheckCircle size={18} color="var(--accent-yellow, #f59e0b)" />
+            Verification
+          </h3>
+          <div style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+            <MathMarkdown>{verification}</MathMarkdown>
+          </div>
+        </div>
+      )}
+
+      {/* Explanation */}
+      {explanation && (
+        <div className="solution-section" style={{ borderLeft: '3px solid var(--accent-purple, #a855f7)' }}>
+          <h3>
+            <Lightbulb size={18} color="var(--accent-purple, #a855f7)" />
+            Explanation
+          </h3>
+          <div style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+            <MathMarkdown>{explanation}</MathMarkdown>
+          </div>
+        </div>
+      )}
+
+      {/* Topic */}
+      {topic && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 8,
+          padding: '8px 12px', borderRadius: 6,
+          background: 'var(--bg-tertiary)',
+          fontSize: 12, color: 'var(--text-muted)', marginTop: 8,
+        }}>
+          <BookOpen size={14} />
+          <span>
+            Topic: <span style={{ color: 'var(--text-secondary)', fontWeight: 500 }}>
+              {topic}
+            </span>
+          </span>
+          {fromCache && (
+            <span style={{
+              marginLeft: 'auto', color: 'var(--accent-green)',
+              display: 'flex', alignItems: 'center', gap: 4,
+            }}>
+              <Zap size={12} /> From Memory
+            </span>
+          )}
+        </div>
+      )}
     </div>
   );
 }
